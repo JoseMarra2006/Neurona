@@ -8,78 +8,92 @@ import type {
   TransactionType,
 } from '../types/database';
 
-// ─── Types para retorno do hook ───────────────────────────────────────────────
+// ─── Types adicionais ─────────────────────────────────────────────────────────
+
+/**
+ * Resumo financeiro do mês atual calculado diretamente do banco.
+ * Inclui os 4 valores exibidos nos cards do Dashboard.
+ */
+export interface MonthlySummary {
+  /** Soma de todas as entradas do mês */
+  totalIncome: number;
+  /** Soma de todos os gastos do mês */
+  totalExpenses: number;
+  /** Soma de todas as economias do mês */
+  totalSavings: number;
+  /**
+   * Sobras = Entradas - Gastos.
+   * Economias não são subtraídas: foram separadas intencionalmente pelo usuário.
+   */
+  surplus: number;
+}
 
 interface UseTransactionsReturn {
-  /** Lista de transações ordenadas da mais recente para a mais antiga */
+  /** Lista completa de transações, mais recente primeiro */
   transactions: Transaction[];
-  /** True enquanto a query inicial ou um refresh está em andamento */
+  /** Últimas 10 transações do mês atual para o Dashboard */
+  monthlyTransactions: Transaction[];
+  /** Resumo financeiro do mês atual (4 cards) */
+  monthlySummary: MonthlySummary;
+  /** True enquanto a lista completa carrega */
   isLoading: boolean;
-  /** Mensagem de erro da última operação, ou null se não houve erro */
+  /** True enquanto os dados mensais carregam */
+  isLoadingMonthly: boolean;
+  /** Mensagem de erro da última operação */
   error: string | null;
-  /**
-   * Insere uma nova transação no banco e atualiza a lista.
-   * @returns O `id` gerado pelo SQLite para a nova linha.
-   */
   addTransaction: (data: NewTransaction) => Promise<number>;
-  /**
-   * Remove uma transação pelo id e atualiza a lista.
-   */
   deleteTransaction: (id: number) => Promise<void>;
-  /**
-   * Retorna todas as transações de um tipo específico,
-   * sem afetar a lista principal.
-   */
   getTransactionsByType: (type: TransactionType) => Promise<Transaction[]>;
-  /**
-   * Calcula o resumo financeiro (totais por tipo e saldo disponível)
-   * diretamente do banco, sem depender da lista em memória.
-   */
   getFinancialSummary: () => Promise<FinancialSummary>;
-  /**
-   * Recarrega a lista do banco manualmente.
-   * Útil após navegação entre telas ou pull-to-refresh.
-   */
   refreshTransactions: () => Promise<void>;
+  refreshMonthlyData: () => Promise<void>;
+}
+
+// ─── Valor inicial padrão ─────────────────────────────────────────────────────
+
+const EMPTY_MONTHLY_SUMMARY: MonthlySummary = {
+  totalIncome: 0,
+  totalExpenses: 0,
+  totalSavings: 0,
+  surplus: 0,
+};
+
+// ─── Utilitário de data ───────────────────────────────────────────────────────
+
+/**
+ * Retorna "YYYY-MM" para usar em LIKE 'YYYY-MM%' no SQLite.
+ * Exemplo: hoje é 15/06/2025 → retorna "2025-06"
+ */
+function getCurrentMonthPrefix(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-/**
- * Hook para operações CRUD na tabela `transactions`.
- *
- * **Requisito:** deve ser chamado dentro de um componente filho
- * do `<SQLiteProvider>` definido em `App.tsx`.
- *
- * Exemplo de uso:
- * ```tsx
- * function MyScreen() {
- *   const { transactions, addTransaction, isLoading } = useTransactions();
- *   // ...
- * }
- * ```
- */
 export function useTransactions(): UseTransactionsReturn {
   const db = useSQLiteContext();
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [monthlyTransactions, setMonthlyTransactions] = useState<Transaction[]>([]);
+  const [monthlySummary, setMonthlySummary] = useState<MonthlySummary>(EMPTY_MONTHLY_SUMMARY);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoadingMonthly, setIsLoadingMonthly] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ── loadTransactions ────────────────────────────────────────────────────
+  // ── Lista completa ──────────────────────────────────────────────────────
   const loadTransactions = useCallback(async (): Promise<void> => {
     try {
       setIsLoading(true);
       setError(null);
-
       const rows = await db.getAllAsync<Transaction>(
         'SELECT id, title, amount, type, date FROM transactions ORDER BY date DESC'
       );
-
       setTransactions(rows);
     } catch (e) {
-      const message =
-        e instanceof Error ? e.message : 'Erro ao carregar transações';
+      const message = e instanceof Error ? e.message : 'Erro ao carregar transações';
       setError(message);
       console.error('[useTransactions] loadTransactions:', message);
     } finally {
@@ -87,41 +101,81 @@ export function useTransactions(): UseTransactionsReturn {
     }
   }, [db]);
 
-  // Carrega na montagem do componente
+  // ── Dados do mês atual ──────────────────────────────────────────────────
+  const loadMonthlyData = useCallback(async (): Promise<void> => {
+    try {
+      setIsLoadingMonthly(true);
+      setError(null);
+      const monthPrefix = getCurrentMonthPrefix();
+
+      // Últimas 10 transações do mês para a FlatList
+      const recentRows = await db.getAllAsync<Transaction>(
+        `SELECT id, title, amount, type, date
+         FROM transactions
+         WHERE date LIKE ?
+         ORDER BY date DESC
+         LIMIT 10`,
+        `${monthPrefix}%`
+      );
+      setMonthlyTransactions(recentRows);
+
+      // Totais agrupados por tipo para os 4 cards
+      const summaryRows = await db.getAllAsync<{ type: string; total: number }>(
+        `SELECT type, SUM(amount) AS total
+         FROM transactions
+         WHERE date LIKE ?
+         GROUP BY type`,
+        `${monthPrefix}%`
+      );
+
+      const totalIncome   = summaryRows.find((r) => r.type === 'entrada')?.total  ?? 0;
+      const totalExpenses = summaryRows.find((r) => r.type === 'gasto')?.total    ?? 0;
+      const totalSavings  = summaryRows.find((r) => r.type === 'economia')?.total ?? 0;
+
+      setMonthlySummary({
+        totalIncome,
+        totalExpenses,
+        totalSavings,
+        surplus: totalIncome - totalExpenses,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Erro ao carregar dados mensais';
+      setError(message);
+      console.error('[useTransactions] loadMonthlyData:', message);
+    } finally {
+      setIsLoadingMonthly(false);
+    }
+  }, [db]);
+
   useEffect(() => {
     loadTransactions();
-  }, [loadTransactions]);
+    loadMonthlyData();
+  }, [loadTransactions, loadMonthlyData]);
 
   // ── addTransaction ──────────────────────────────────────────────────────
   const addTransaction = useCallback(
     async (data: NewTransaction): Promise<number> => {
-      // Se não vier data, usa o momento atual em UTC (ISO 8601)
       const date = data.date ?? new Date().toISOString();
-
       const result = await db.runAsync(
-        `INSERT INTO transactions (title, amount, type, date)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO transactions (title, amount, type, date) VALUES (?, ?, ?, ?)`,
         data.title,
         data.amount,
         data.type,
         date
       );
-
-      // Atualiza a lista em memória após a inserção
-      await loadTransactions();
-
+      await Promise.all([loadTransactions(), loadMonthlyData()]);
       return result.lastInsertRowId;
     },
-    [db, loadTransactions]
+    [db, loadTransactions, loadMonthlyData]
   );
 
   // ── deleteTransaction ───────────────────────────────────────────────────
   const deleteTransaction = useCallback(
     async (id: number): Promise<void> => {
       await db.runAsync('DELETE FROM transactions WHERE id = ?', id);
-      await loadTransactions();
+      await Promise.all([loadTransactions(), loadMonthlyData()]);
     },
-    [db, loadTransactions]
+    [db, loadTransactions, loadMonthlyData]
   );
 
   // ── getTransactionsByType ───────────────────────────────────────────────
@@ -138,40 +192,36 @@ export function useTransactions(): UseTransactionsReturn {
     [db]
   );
 
-  // ── getFinancialSummary ─────────────────────────────────────────────────
+  // ── getFinancialSummary (global, todos os meses) ────────────────────────
   const getFinancialSummary = useCallback(async (): Promise<FinancialSummary> => {
-    // Uma única query agrupa os totais por tipo
     const rows = await db.getAllAsync<{ type: string; total: number }>(
-      `SELECT type, SUM(amount) AS total
-       FROM transactions
-       GROUP BY type`
+      `SELECT type, SUM(amount) AS total FROM transactions GROUP BY type`
     );
-
-    const totalIncome =
-      rows.find((r) => r.type === 'entrada')?.total ?? 0;
-    const totalExpenses =
-      rows.find((r) => r.type === 'gasto')?.total ?? 0;
-    const totalSavings =
-      rows.find((r) => r.type === 'economia')?.total ?? 0;
-
+    const totalIncome   = rows.find((r) => r.type === 'entrada')?.total  ?? 0;
+    const totalExpenses = rows.find((r) => r.type === 'gasto')?.total    ?? 0;
+    const totalSavings  = rows.find((r) => r.type === 'economia')?.total ?? 0;
     return {
       totalIncome,
       totalExpenses,
       totalSavings,
-      // Saldo disponível: o que sobrou após despesas e transferências para poupança
       balance: totalIncome - totalExpenses - totalSavings,
     };
   }, [db]);
 
-  // ── Retorno do hook ─────────────────────────────────────────────────────
   return {
     transactions,
+    monthlyTransactions,
+    monthlySummary,
     isLoading,
+    isLoadingMonthly,
     error,
     addTransaction,
     deleteTransaction,
     getTransactionsByType,
     getFinancialSummary,
-    refreshTransactions: loadTransactions,
+    refreshTransactions: async () => {
+      await Promise.all([loadTransactions(), loadMonthlyData()]);
+    },
+    refreshMonthlyData: loadMonthlyData,
   };
 }
