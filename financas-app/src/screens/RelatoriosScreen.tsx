@@ -1,23 +1,19 @@
 // caminho: src/screens/RelatoriosScreen.tsx
 import React from 'react';
-import { View, Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import ReportsStack from '../navigation/ReportsStack';
 
-import type { RelatoriosScreenProps } from '../types/navigation';
-
-export default function RelatoriosScreen(_props: RelatoriosScreenProps) {
-  return (
-    <SafeAreaView className="flex-1 bg-gray-50" edges={['bottom']}>
-      <View className="flex-1 items-center justify-center px-6">
-        <Text className="text-6xl mb-4">📈</Text>
-        <Text className="text-gray-800 text-2xl font-bold mb-2">
-          Relatórios
-        </Text>
-        <Text className="text-gray-400 text-sm text-center leading-relaxed">
-          Aqui você verá gráficos e análises detalhadas das suas finanças.{'\n'}
-          Em construção — disponível na próxima fase.
-        </Text>
-      </View>
-    </SafeAreaView>
-  );
+/**
+ * Ponto de entrada da aba "Relatórios" no Drawer Navigator.
+ *
+ * Esta tela funciona apenas como wrapper do `ReportsStack`.
+ * Todo o conteúdo visual, lógica e navegação vivem dentro do Stack.
+ *
+ * Por que um wrapper separado?
+ *  - O DrawerNavigator precisa de um componente React para a rota "Relatórios".
+ *  - O ReportsStack precisa de um StackNavigator próprio para manter histórico
+ *    de navegação interno (Anos → Meses → Transações) sem interferir no Drawer.
+ *  - Separar os dois evita que o botão "Voltar" do Stack conflite com o Drawer.
+ */
+export default function RelatoriosScreen(): React.JSX.Element {
+  return <ReportsStack />;
 }
