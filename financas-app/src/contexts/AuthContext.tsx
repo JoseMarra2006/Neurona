@@ -32,7 +32,9 @@ interface AuthActions {
    */
   signIn: (email: string, password: string) => Promise<boolean>;
   /**
-   * Cria uma nova conta e, em seguida, atualiza o perfil com o nome.
+   * Cria uma nova conta e entra automaticamente (sem verificação de email).
+   * A confirmação de email deve estar desabilitada no painel do Supabase em:
+   * Authentication → Providers → Email → "Confirm email" desligado.
    * @returns `true` em caso de sucesso, `false` em caso de erro.
    */
   signUp: (email: string, password: string, name: string) => Promise<boolean>;
@@ -98,7 +100,6 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
 
     const initialize = async (): Promise<void> => {
       try {
-        // Recupera a sessão salva localmente (se houver)
         const { data } = await supabase.auth.getSession();
         if (isMounted) {
           await applySession(data.session);
@@ -120,8 +121,6 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
       async (_event, newSession) => {
         if (isMounted) {
           await applySession(newSession);
-          // Garante que o loading termina mesmo que o evento chegue
-          // antes da inicialização acima
           setIsLoading(false);
         }
       }
@@ -150,7 +149,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
           return false;
         }
 
-        // O onAuthStateChange já cuida de chamar applySession
+        // O onAuthStateChange cuida de chamar applySession automaticamente
         return true;
       } catch (e) {
         setError('Erro inesperado ao fazer login. Tente novamente.');
@@ -163,6 +162,20 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
   );
 
   // ── signUp ───────────────────────────────────────────────────────────────
+  /**
+   * Fluxo de cadastro SEM verificação de email.
+   *
+   * Pré-requisito no Supabase Dashboard:
+   *   Authentication → Providers → Email → desabilitar "Confirm email"
+   *
+   * Com a confirmação desabilitada, o Supabase retorna uma sessão ativa
+   * imediatamente após o cadastro (signUpData.session !== null).
+   * Aplicamos essa sessão diretamente para que o usuário entre no app
+   * sem nenhuma etapa adicional.
+   *
+   * O trigger `handle_new_user` no banco cria a linha em `profiles` com
+   * o email automaticamente. Em seguida, atualizamos o campo `name`.
+   */
   const signUp = useCallback(
     async (email: string, password: string, name: string): Promise<boolean> => {
       setError(null);
@@ -181,9 +194,24 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
           return false;
         }
 
-        // 2. Atualiza o campo `name` no perfil criado pelo trigger
-        // O trigger `handle_new_user` já inseriu a linha com email,
-        // agora só precisamos adicionar o nome
+        // 2. Verifica se a sessão foi retornada imediatamente.
+        //    Isso acontece quando "Confirm email" está desabilitado no Supabase.
+        //    Se a sessão não vier (ex.: email já cadastrado aguardando confirmação),
+        //    informamos o usuário.
+        if (!signUpData.session) {
+          // Caso raro: confirmação de email ainda ativa no Supabase Dashboard,
+          // ou o email já estava cadastrado mas não confirmado.
+          setError(
+            'Cadastro realizado. Verifique seu email para confirmar a conta antes de entrar.\n\n' +
+            'Se você não quer verificação de email, desative "Confirm email" em ' +
+            'Authentication → Providers → Email no painel do Supabase.'
+          );
+          return false;
+        }
+
+        // 3. Atualiza o campo `name` no perfil criado pelo trigger.
+        //    Tentamos atualizar, mas não bloqueamos o login em caso de falha —
+        //    o nome pode ser definido depois nas Configurações.
         if (signUpData.user) {
           const { error: profileError } = await supabase
             .from('profiles')
@@ -194,11 +222,14 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
             .eq('id', signUpData.user.id);
 
           if (profileError) {
-            // Não é erro crítico — o usuário foi criado,
-            // o nome pode ser atualizado depois nas configurações
             console.warn('[AuthContext] signUp profile update:', profileError.message);
           }
         }
+
+        // 4. Aplica a sessão imediatamente para navegar ao app sem delay.
+        //    O onAuthStateChange também vai disparar logo depois — a segunda
+        //    chamada a applySession é idempotente (mesma sessão).
+        await applySession(signUpData.session);
 
         return true;
       } catch (e) {
@@ -208,7 +239,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
         setIsLoading(false);
       }
     },
-    []
+    [applySession]
   );
 
   // ── signOut ──────────────────────────────────────────────────────────────
@@ -216,7 +247,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
     setIsLoading(true);
     try {
       await supabase.auth.signOut();
-      // O onAuthStateChange já dispara applySession(null) automaticamente
+      // O onAuthStateChange dispara applySession(null) automaticamente
     } catch (e) {
       console.error('[AuthContext] signOut error:', e);
     } finally {
@@ -251,11 +282,6 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
  * Hook para acessar o contexto de autenticação em qualquer componente.
  *
  * Lança um erro se usado fora do `AuthProvider`, evitando bugs silenciosos.
- *
- * Exemplo:
- * ```tsx
- * const { user, signOut } = useAuth();
- * ```
  */
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
@@ -272,10 +298,6 @@ export function useAuth(): AuthContextValue {
 
 // ─── Utilitário: tradução de erros ───────────────────────────────────────────
 
-/**
- * Traduz as mensagens de erro do Supabase Auth (em inglês) para
- * mensagens amigáveis em português para exibir na interface.
- */
 function translateAuthError(error: AuthError): string {
   const message = error.message.toLowerCase();
 
@@ -304,6 +326,5 @@ function translateAuthError(error: AuthError): string {
     return 'Sem conexão com a internet. Verifique sua rede.';
   }
 
-  // Fallback: retorna a mensagem original caso não seja mapeada
   return `Erro de autenticação: ${error.message}`;
 }
