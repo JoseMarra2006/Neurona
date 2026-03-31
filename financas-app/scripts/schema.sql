@@ -1,7 +1,3 @@
--- ============================================================
--- PASSO 1: Tabela de perfis (espelha auth.users)
--- Criada automaticamente via trigger quando um usuário se cadastra
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.profiles (
   id          UUID        PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email       TEXT        NOT NULL,
@@ -10,10 +6,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ============================================================
--- PASSO 2: Tabela de transações (privada por usuário)
--- Espelha a tabela SQLite local, com user_id para RLS
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.transactions (
   id          BIGSERIAL   PRIMARY KEY,
   user_id     UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -25,11 +17,6 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ============================================================
--- PASSO 3: Tabela de metas (privada agora, preparada para compartilhamento futuro)
--- is_shared e shared_with permitem a lógica colaborativa no futuro
--- sem precisar fazer ALTER TABLE depois
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.goals (
   id              BIGSERIAL   PRIMARY KEY,
   user_id         UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -42,9 +29,6 @@ CREATE TABLE IF NOT EXISTS public.goals (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ============================================================
--- PASSO 4: Índices para performance de consulta
--- ============================================================
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id
   ON public.transactions (user_id);
 
@@ -60,11 +44,6 @@ CREATE INDEX IF NOT EXISTS idx_goals_user_id
 CREATE INDEX IF NOT EXISTS idx_goals_deadline
   ON public.goals (deadline_date);
 
--- ============================================================
--- PASSO 5: Função e Trigger para criar perfil automaticamente
--- Toda vez que um novo usuário se cadastra no Auth do Supabase,
--- esta função insere automaticamente uma linha em public.profiles
--- ============================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -78,7 +57,6 @@ BEGIN
 END;
 $$;
 
--- Remove o trigger se já existir para evitar duplicação ao rodar novamente
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 
 CREATE TRIGGER on_auth_user_created

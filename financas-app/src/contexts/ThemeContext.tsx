@@ -2,11 +2,9 @@
 import React, {
   createContext,
   useContext,
-  useEffect,
   type ReactNode,
 } from 'react';
 import { useColorScheme as useRNColorScheme } from 'react-native';
-import { useColorScheme as useNativeWindColorScheme } from 'nativewind';
 
 import { useSettingsStore } from '../store/useSettingsStore';
 import type { Theme } from '../store/useSettingsStore';
@@ -76,40 +74,27 @@ interface ThemeProviderProps {
  *
  * Responsabilidades:
  *  1. Ler `theme` e `accentColor` do Zustand (que persiste no AsyncStorage).
- *  2. Sincronizar o NativeWind colorScheme via `setColorScheme()` sempre que
- *     a preferência de tema mudar. Isso ativa/desativa as variantes `dark:` em
- *     todos os componentes filhos que usam NativeWind.
+ *  2. Resolver o boolean `isDark` considerando a preferência do usuário
+ *     e o esquema do sistema operacional (para o modo 'system').
  *  3. Expor `isDark`, `accentColor` e `theme` via context para qualquer
- *     componente que precise aplicar valores dinâmicos fora do NativeWind
- *     (ex: cores em StyleSheet, inline styles, etc.).
+ *     componente que precise aplicar valores dinâmicos via inline styles
+ *     ou StyleSheet.
  *
- * Posição na árvore (App.tsx):
- *   ThemeProvider
- *   └── SQLiteProvider
- *       └── AuthProvider
- *           └── AppShell   ← consome useColorScheme do NativeWind para aplicar "dark" class
+ * Nota: O `setColorScheme` do NativeWind foi removido intencionalmente.
+ * Ele exige `darkMode: 'class'` no tailwind.config.js e causa um crash
+ * em runtime quando essa configuração não é lida corretamente pelo bundler.
+ * Como todas as telas já consomem `isDark` via inline styles, a integração
+ * com as variantes `dark:` do NativeWind não é necessária para o funcionamento
+ * correto do tema escuro neste projeto.
  */
 export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Element {
-  const theme      = useSettingsStore((s) => s.theme);
+  const theme       = useSettingsStore((s) => s.theme);
   const accentColor = useSettingsStore((s) => s.accentColor);
 
-  // NativeWind's setColorScheme updates the global color scheme that
-  // NativeWind uses to resolve dark: variants.
-  const { setColorScheme } = useNativeWindColorScheme();
-
-  // React Native's system color scheme — used when theme === 'system'
+  // Esquema do sistema operacional — usado quando theme === 'system'
   const systemScheme = useRNColorScheme(); // 'light' | 'dark' | null
 
-  /**
-   * Whenever the user's theme preference changes, synchronise NativeWind.
-   * 'system' is passed through directly — NativeWind resolves it using
-   * the OS preference internally.
-   */
-  useEffect(() => {
-    setColorScheme(theme);
-  }, [theme, setColorScheme]);
-
-  // Resolve the actual dark/light boolean for StyleSheet consumers
+  // Resolve o boolean isDark para os consumidores do contexto
   const isDark =
     theme === 'dark' ||
     (theme === 'system' && systemScheme === 'dark');

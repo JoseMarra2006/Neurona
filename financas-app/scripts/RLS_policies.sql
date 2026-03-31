@@ -1,15 +1,7 @@
--- ============================================================
--- HABILITAR Row Level Security em todas as tabelas
--- Sem RLS ativo, qualquer usuário autenticado veria todos os dados
--- ============================================================
 ALTER TABLE public.profiles     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.goals        ENABLE ROW LEVEL SECURITY;
 
--- ============================================================
--- POLÍTICAS para public.profiles
--- Cada usuário só acessa e edita o próprio perfil
--- ============================================================
 DROP POLICY IF EXISTS "profiles: select own" ON public.profiles;
 CREATE POLICY "profiles: select own"
   ON public.profiles FOR SELECT
@@ -25,10 +17,6 @@ CREATE POLICY "profiles: update own"
   ON public.profiles FOR UPDATE
   USING (auth.uid() = id);
 
--- ============================================================
--- POLÍTICAS para public.transactions (totalmente privadas)
--- Um usuário nunca vê, edita ou deleta transações de outro
--- ============================================================
 DROP POLICY IF EXISTS "transactions: select own" ON public.transactions;
 CREATE POLICY "transactions: select own"
   ON public.transactions FOR SELECT
@@ -49,12 +37,6 @@ CREATE POLICY "transactions: delete own"
   ON public.transactions FOR DELETE
   USING (auth.uid() = user_id);
 
--- ============================================================
--- POLÍTICAS para public.goals
--- Hoje: privadas por usuário (is_shared = FALSE)
--- Futuro: para ativar compartilhamento, basta adicionar uma policy
--- que verifica is_shared = TRUE sem alterar as existentes
--- ============================================================
 DROP POLICY IF EXISTS "goals: select own" ON public.goals;
 CREATE POLICY "goals: select own"
   ON public.goals FOR SELECT
