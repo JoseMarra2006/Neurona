@@ -9,89 +9,76 @@ import {
   TextInput,
   FlatList,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 
 import type { DashboardScreenProps } from '../types/navigation';
 import { useTransactions } from '../database/useTransactions';
 import type { TransactionType } from '../types/database';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useAppTheme } from '../contexts/ThemeContext';
 
-// ─── Constantes de cor ────────────────────────────────────────────────────────
+// ─── Cores semânticas financeiras (IMUTÁVEIS) ─────────────────────────────────
+//
+// Estas cores representam conceitos de negócio e NUNCA devem ser alteradas
+// pelo accentColor do usuário nem pelo tema claro/escuro.
+// Os backgrounds e bordas possuem variantes dark para manter legibilidade,
+// mas as cores de texto (verde/vermelho/roxo/azul) são sempre as mesmas.
 
-const COLORS = {
-  income:   { bg: '#f0fdf4', border: '#bbf7d0', text: '#16a34a', light: '#dcfce7' },
-  expense:  { bg: '#fef2f2', border: '#fecaca', text: '#dc2626', light: '#fee2e2' },
-  surplus:  { bg: '#faf5ff', border: '#e9d5ff', text: '#7c3aed', light: '#ede9fe' },
-  savings:  { bg: '#eff6ff', border: '#bfdbfe', text: '#2563eb', light: '#dbeafe' },
-  navy:     '#0f2044',
-  primary:  '#2f78f0',
-};
+function getSemantic(isDark: boolean) {
+  return {
+    income: {
+      text:   '#16a34a',
+      bg:     isDark ? '#071a0f' : '#f0fdf4',
+      border: isDark ? '#14532d' : '#bbf7d0',
+    },
+    expense: {
+      text:   '#dc2626',
+      bg:     isDark ? '#1c0707' : '#fef2f2',
+      border: isDark ? '#7f1d1d' : '#fecaca',
+    },
+    surplus: {
+      text:   '#7c3aed',
+      bg:     isDark ? '#130a24' : '#faf5ff',
+      border: isDark ? '#4c1d95' : '#e9d5ff',
+    },
+    savings: {
+      text:   '#2563eb',
+      bg:     isDark ? '#060e1f' : '#eff6ff',
+      border: isDark ? '#1e3a5f' : '#bfdbfe',
+    },
+  };
+}
 
 // ─── Utilitários ──────────────────────────────────────────────────────────────
 
-/**
- * Formata um número como moeda BRL sem usar Intl (compatibilidade total).
- * Exemplo: 1234.5 → "R$ 1.234,50"
- */
 function formatCurrency(value: number): string {
-  const formatted = Math.abs(value)
+  return 'R$ ' + Math.abs(value)
     .toFixed(2)
     .replace('.', ',')
     .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return `R$ ${formatted}`;
 }
 
-/**
- * Formata uma string de data ISO 8601 para exibição no formato DD/MM/AAAA.
- * Exemplo: "2025-06-15T10:30:00.000Z" → "15/06/2025"
- */
 function formatDate(isoDate: string): string {
-  const datePart = isoDate.split('T')[0];
-  if (!datePart) return isoDate;
-  const parts = datePart.split('-');
-  if (parts.length !== 3) return isoDate;
-  const [year, month, day] = parts;
-  return `${day}/${month}/${year}`;
+  const p = isoDate.split('T')[0]?.split('-');
+  if (!p || p.length !== 3) return isoDate;
+  return `${p[2]}/${p[1]}/${p[0]}`;
 }
 
-/**
- * Retorna o nome do mês atual em português.
- * Exemplo: mês 6 → "Junho"
- */
 function getCurrentMonthName(): string {
   const months = [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+    'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
   ];
   return months[new Date().getMonth()] ?? '';
 }
 
-/**
- * Retorna as configurações de cor e label para cada tipo de transação.
- */
-function getTypeConfig(type: TransactionType): {
-  label: string;
-  color: string;
-  bgColor: string;
-  borderColor: string;
-} {
-  switch (type) {
-    case 'entrada':
-      return { label: 'Entrada', color: COLORS.income.text, bgColor: COLORS.income.bg, borderColor: COLORS.income.border };
-    case 'gasto':
-      return { label: 'Gasto', color: COLORS.expense.text, bgColor: COLORS.expense.bg, borderColor: COLORS.expense.border };
-    case 'economia':
-      return { label: 'Economia', color: COLORS.savings.text, bgColor: COLORS.savings.bg, borderColor: COLORS.savings.border };
-  }
-}
-
-// ─── Tipo do formulário do modal ──────────────────────────────────────────────
+// ─── Tipo do formulário ───────────────────────────────────────────────────────
 
 interface TransactionForm {
   title: string;
@@ -99,105 +86,108 @@ interface TransactionForm {
   type: TransactionType;
 }
 
-const INITIAL_FORM: TransactionForm = {
-  title: '',
-  amount: '',
-  type: 'gasto',
-};
+const INITIAL_FORM: TransactionForm = { title: '', amount: '', type: 'gasto' };
+
+// ─── Configuração por tipo (ícone + labels) ───────────────────────────────────
+
+type FeatherIconName = keyof typeof Feather.glyphMap;
+
+interface TypeOption {
+  type: TransactionType;
+  label: string;
+  icon: FeatherIconName;
+  signal: string;
+}
+
+const TYPE_OPTIONS: TypeOption[] = [
+  { type: 'gasto',    label: 'Gasto',    icon: 'trending-down', signal: '−' },
+  { type: 'entrada',  label: 'Entrada',  icon: 'trending-up',   signal: '+' },
+  { type: 'economia', label: 'Economia', icon: 'shield',        signal: '+' },
+];
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function DashboardScreen({ navigation }: DashboardScreenProps): React.JSX.Element {
-  // ── Dados do banco ────────────────────────────────────────────────────────
+  const { accentColor, isDark } = useAppTheme();
+
   const {
     monthlyTransactions,
     monthlySummary,
     isLoadingMonthly,
     addTransaction,
-    refreshMonthlyData,
   } = useTransactions();
 
-  // ── Nome do usuário: tenta perfil Supabase, cai no Zustand ───────────────
   const { profile } = useAuth();
   const settingsUserName = useSettingsStore((s) => s.userName);
   const displayName = profile?.name ?? settingsUserName ?? '';
-  const greeting = displayName.length > 0 ? `Olá, ${displayName.split(' ')[0]}!` : 'Olá!';
+  const greeting = displayName.length > 0
+    ? `Olá, ${displayName.split(' ')[0]}`
+    : 'Olá';
 
-  // ── Estado do modal ───────────────────────────────────────────────────────
   const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
   const [form, setForm] = useState<TransactionForm>(INITIAL_FORM);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // ── Abrir / fechar modal ──────────────────────────────────────────────────
+  // ── Paleta dinâmica ───────────────────────────────────────────────────────
+  const P = {
+    screenBg:        isDark ? '#0d1117' : '#f6f8fa',
+    cardBg:          isDark ? '#161b22' : '#ffffff',
+    cardBorder:      isDark ? '#30363d' : '#d0d7de',
+    textPrimary:     isDark ? '#e6edf3' : '#1f2328',
+    textSecondary:   isDark ? '#8b949e' : '#57606a',
+    textMuted:       isDark ? '#6e7681' : '#9198a1',
+    inputBg:         isDark ? '#0d1117' : '#f6f8fa',
+    inputBorder:     isDark ? '#30363d' : '#d0d7de',
+    inputFocusBorder:accentColor,
+    divider:         isDark ? '#21262d' : '#eaecef',
+    modalBg:         isDark ? '#161b22' : '#ffffff',
+    sectionLabel:    isDark ? '#8b949e' : '#57606a',
+    badgeBg:         isDark ? '#21262d' : '#f0f6ff',
+    badgeBorder:     isDark ? '#30363d' : '#d0d7de',
+  };
+
+  const SEM = getSemantic(isDark);
+
+  // ── Modal ─────────────────────────────────────────────────────────────────
   const openModal = useCallback((): void => {
-    setForm(INITIAL_FORM);
-    setFormError(null);
-    setIsModalVisible(true);
+    setForm(INITIAL_FORM); setFormError(null); setIsModalVisible(true);
   }, []);
 
   const closeModal = useCallback((): void => {
     if (isSaving) return;
-    setIsModalVisible(false);
-    setForm(INITIAL_FORM);
-    setFormError(null);
+    setIsModalVisible(false); setForm(INITIAL_FORM); setFormError(null);
   }, [isSaving]);
 
-  // ── Validação do formulário ───────────────────────────────────────────────
   const validateForm = useCallback((): boolean => {
     setFormError(null);
-
-    if (!form.title.trim()) {
-      setFormError('O título é obrigatório.');
-      return false;
-    }
-    if (form.title.trim().length < 2) {
-      setFormError('O título deve ter pelo menos 2 caracteres.');
-      return false;
-    }
-    if (!form.amount.trim()) {
-      setFormError('O valor é obrigatório.');
-      return false;
-    }
-
-    const parsedAmount = parseFloat(form.amount.replace(',', '.'));
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setFormError('Informe um valor numérico maior que zero.');
-      return false;
-    }
-
+    if (!form.title.trim()) { setFormError('O título é obrigatório.'); return false; }
+    if (form.title.trim().length < 2) { setFormError('Título deve ter pelo menos 2 caracteres.'); return false; }
+    if (!form.amount.trim()) { setFormError('O valor é obrigatório.'); return false; }
+    const v = parseFloat(form.amount.replace(',', '.'));
+    if (isNaN(v) || v <= 0) { setFormError('Informe um valor numérico maior que zero.'); return false; }
     return true;
   }, [form]);
 
-  // ── Salvar transação ──────────────────────────────────────────────────────
   const handleSave = useCallback(async (): Promise<void> => {
     if (!validateForm()) return;
-
     setIsSaving(true);
     try {
-      const parsedAmount = parseFloat(form.amount.replace(',', '.'));
-
       await addTransaction({
-        title: form.title.trim(),
-        amount: parsedAmount,
-        type: form.type,
-        // Data atual do sistema em UTC — o hook usa new Date().toISOString()
-        // por padrão quando `date` não é passado, mas passamos explicitamente
-        // para deixar o comportamento claro.
-        date: new Date().toISOString(),
+        title:  form.title.trim(),
+        amount: parseFloat(form.amount.replace(',', '.')),
+        type:   form.type,
+        date:   new Date().toISOString(),
       });
-
       setIsModalVisible(false);
       setForm(INITIAL_FORM);
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Erro ao salvar. Tente novamente.';
-      setFormError(message);
+      setFormError(e instanceof Error ? e.message : 'Erro ao salvar. Tente novamente.');
     } finally {
       setIsSaving(false);
     }
   }, [form, validateForm, addTransaction]);
 
-  // ── Atualizar campo do formulário ─────────────────────────────────────────
   const updateField = useCallback(
     <K extends keyof TransactionForm>(key: K, value: TransactionForm[K]): void => {
       setForm((prev) => ({ ...prev, [key]: value }));
@@ -206,54 +196,74 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     []
   );
 
-  // ── Navegar para Relatórios ───────────────────────────────────────────────
   const goToRelatorios = useCallback((): void => {
     navigation.navigate('Relatórios');
   }, [navigation]);
 
-  // ── Renderizar item da FlatList ───────────────────────────────────────────
-  const renderTransactionItem = useCallback(
-    ({ item }: { item: (typeof monthlyTransactions)[0] }) => {
-      const typeConfig = getTypeConfig(item.type);
+  // ── Render item da FlatList ───────────────────────────────────────────────
+  const renderItem = useCallback(
+    ({ item, index }: { item: (typeof monthlyTransactions)[0]; index: number }) => {
+      const isLast = index === monthlyTransactions.length - 1;
+
+      // Seleciona as cores semânticas corretas por tipo
+      let dotColor = SEM.income.text;
+      let amountColor = SEM.income.text;
+      let signal = '+';
+      let badgeBg = SEM.income.bg;
+      let badgeBorder = SEM.income.border;
+      let label = 'Entrada';
+
+      if (item.type === 'gasto') {
+        dotColor = SEM.expense.text;
+        amountColor = SEM.expense.text;
+        signal = '−';
+        badgeBg = SEM.expense.bg;
+        badgeBorder = SEM.expense.border;
+        label = 'Gasto';
+      } else if (item.type === 'economia') {
+        dotColor = SEM.savings.text;
+        amountColor = SEM.savings.text;
+        badgeBg = SEM.savings.bg;
+        badgeBorder = SEM.savings.border;
+        label = 'Economia';
+      }
+
       return (
         <View
           style={[
-            styles.transactionItem,
-            { backgroundColor: typeConfig.bgColor, borderColor: typeConfig.borderColor },
+            styles.txRow,
+            {
+              borderBottomWidth: isLast ? 0 : 1,
+              borderBottomColor: P.divider,
+            },
           ]}
         >
-          {/* Indicador colorido lateral */}
-          <View
-            style={[styles.transactionIndicator, { backgroundColor: typeConfig.color }]}
-          />
+          {/* Ponto de cor semântica */}
+          <View style={[styles.txDot, { backgroundColor: dotColor }]} />
 
-          {/* Conteúdo central: título e data */}
-          <View style={styles.transactionContent}>
-            <Text style={styles.transactionTitle} numberOfLines={1}>
+          {/* Título + data */}
+          <View style={styles.txMid}>
+            <Text style={[styles.txTitle, { color: P.textPrimary }]} numberOfLines={1}>
               {item.title}
             </Text>
-            <Text style={styles.transactionDate}>{formatDate(item.date)}</Text>
+            <Text style={[styles.txDate, { color: P.textMuted }]}>
+              {formatDate(item.date)}
+            </Text>
           </View>
 
-          {/* Lado direito: valor e badge do tipo */}
-          <View style={styles.transactionRight}>
-            <Text style={[styles.transactionAmount, { color: typeConfig.color }]}>
-              {item.type === 'gasto' ? '- ' : '+ '}
-              {formatCurrency(item.amount)}
+          {/* Valor + badge */}
+          <View style={styles.txRight}>
+            <Text style={[styles.txAmount, { color: amountColor }]}>
+              {signal} {formatCurrency(item.amount)}
             </Text>
-            <View
-              style={[
-                styles.transactionBadge,
-                { backgroundColor: typeConfig.color },
-              ]}
-            >
-              <Text style={styles.transactionBadgeText}>{typeConfig.label}</Text>
+            <View style={[styles.txBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
+              <Text style={[styles.txBadgeText, { color: dotColor }]}>{label}</Text>
             </View>
           </View>
         </View>
       );
     },
-    [monthlyTransactions]
+    [isDark, P, SEM, monthlyTransactions.length]
   );
 
   const keyExtractor = useCallback(
@@ -261,111 +271,102 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     []
   );
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
       <ScrollView
-        style={styles.scrollView}
+        style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-
-        {/* ── Saudação ──────────────────────────────────────────────────── */}
-        <View style={styles.greetingContainer}>
+        {/* ── Saudação ──────────────────────────────────────────────── */}
+        <View style={styles.greetRow}>
           <View>
-            <Text style={styles.greetingText}>{greeting}</Text>
-            <Text style={styles.greetingSubtext}>
-              Resumo de {getCurrentMonthName()} {new Date().getFullYear()}
+            <Text style={[styles.greetName, { color: P.textPrimary }]}>
+              {greeting}
+            </Text>
+            <Text style={[styles.greetSub, { color: P.textSecondary }]}>
+              {getCurrentMonthName()} {new Date().getFullYear()}
             </Text>
           </View>
-          <View style={styles.greetingBadge}>
-            <Text style={styles.greetingBadgeText}>💰</Text>
+
+          {/* Badge de ícone com accentColor */}
+          <View style={[styles.greetBadge, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
+            <Feather name="dollar-sign" size={20} color={accentColor} />
           </View>
         </View>
 
-        {/* ── Botão de adicionar dados ───────────────────────────────────── */}
+        {/* ── Botão primário ────────────────────────────────────────── */}
         <TouchableOpacity
           onPress={openModal}
           activeOpacity={0.85}
-          style={styles.addButton}
+          style={[styles.addBtn, { backgroundColor: accentColor }]}
         >
-          <Text style={styles.addButtonText}>+ Adicionar dados</Text>
+          <Feather name="plus" size={15} color="#ffffff" style={{ marginRight: 8 }} />
+          <Text style={styles.addBtnText}>Nova movimentação</Text>
         </TouchableOpacity>
 
-        {/* ── Cards de resumo do mês ─────────────────────────────────────── */}
+        {/* ── Cards de resumo ───────────────────────────────────────── */}
         {isLoadingMonthly ? (
-          <View style={styles.loadingCards}>
-            <ActivityIndicator size="small" color={COLORS.primary} />
-            <Text style={styles.loadingText}>Calculando resumo…</Text>
+          <View style={styles.loadingRow}>
+            <ActivityIndicator size="small" color={accentColor} />
+            <Text style={[styles.loadingText, { color: P.textMuted }]}>
+              Calculando resumo…
+            </Text>
           </View>
         ) : (
           <>
-            <Text style={styles.sectionTitle}>Resumo do mês</Text>
+            <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>
+              RESUMO DO MÊS
+            </Text>
+
             <View style={styles.cardsGrid}>
 
-              {/* Card: Entradas */}
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: COLORS.income.bg, borderColor: COLORS.income.border },
-                ]}
-              >
-                <Text style={styles.cardEmoji}>💚</Text>
-                <Text style={styles.cardLabel}>Entradas</Text>
-                <Text style={[styles.cardValue, { color: COLORS.income.text }]}>
+              {/* Entradas — SEMPRE verde */}
+              <View style={[styles.card, { backgroundColor: SEM.income.bg, borderColor: SEM.income.border }]}>
+                <View style={styles.cardHeader}>
+                  <Feather name="trending-up" size={14} color={SEM.income.text} />
+                  <Text style={[styles.cardLabel, { color: SEM.income.text }]}>ENTRADAS</Text>
+                </View>
+                <Text style={[styles.cardValue, { color: SEM.income.text }]}>
                   {formatCurrency(monthlySummary.totalIncome)}
                 </Text>
               </View>
 
-              {/* Card: Gastos */}
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: COLORS.expense.bg, borderColor: COLORS.expense.border },
-                ]}
-              >
-                <Text style={styles.cardEmoji}>🔴</Text>
-                <Text style={styles.cardLabel}>Gastos</Text>
-                <Text style={[styles.cardValue, { color: COLORS.expense.text }]}>
+              {/* Gastos — SEMPRE vermelho */}
+              <View style={[styles.card, { backgroundColor: SEM.expense.bg, borderColor: SEM.expense.border }]}>
+                <View style={styles.cardHeader}>
+                  <Feather name="trending-down" size={14} color={SEM.expense.text} />
+                  <Text style={[styles.cardLabel, { color: SEM.expense.text }]}>GASTOS</Text>
+                </View>
+                <Text style={[styles.cardValue, { color: SEM.expense.text }]}>
                   {formatCurrency(monthlySummary.totalExpenses)}
                 </Text>
               </View>
 
-              {/* Card: Sobras */}
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: COLORS.surplus.bg, borderColor: COLORS.surplus.border },
-                ]}
-              >
-                <Text style={styles.cardEmoji}>💜</Text>
-                <Text style={styles.cardLabel}>Sobras</Text>
-                <Text
-                  style={[
-                    styles.cardValue,
-                    {
-                      color:
-                        monthlySummary.surplus >= 0
-                          ? COLORS.surplus.text
-                          : COLORS.expense.text,
-                    },
-                  ]}
-                >
-                  {monthlySummary.surplus < 0 ? '- ' : ''}
+              {/* Sobras — SEMPRE roxo */}
+              <View style={[styles.card, { backgroundColor: SEM.surplus.bg, borderColor: SEM.surplus.border }]}>
+                <View style={styles.cardHeader}>
+                  <Feather name="activity" size={14} color={SEM.surplus.text} />
+                  <Text style={[styles.cardLabel, { color: SEM.surplus.text }]}>SOBRAS</Text>
+                </View>
+                <Text style={[styles.cardValue, {
+                  color: monthlySummary.surplus >= 0
+                    ? SEM.surplus.text
+                    : SEM.expense.text,
+                }]}>
+                  {monthlySummary.surplus < 0 ? '−' : ''}
                   {formatCurrency(Math.abs(monthlySummary.surplus))}
                 </Text>
               </View>
 
-              {/* Card: Economias */}
-              <View
-                style={[
-                  styles.card,
-                  { backgroundColor: COLORS.savings.bg, borderColor: COLORS.savings.border },
-                ]}
-              >
-                <Text style={styles.cardEmoji}>💙</Text>
-                <Text style={styles.cardLabel}>Economias</Text>
-                <Text style={[styles.cardValue, { color: COLORS.savings.text }]}>
+              {/* Economias — SEMPRE azul */}
+              <View style={[styles.card, { backgroundColor: SEM.savings.bg, borderColor: SEM.savings.border }]}>
+                <View style={styles.cardHeader}>
+                  <Feather name="shield" size={14} color={SEM.savings.text} />
+                  <Text style={[styles.cardLabel, { color: SEM.savings.text }]}>ECONOMIAS</Text>
+                </View>
+                <Text style={[styles.cardValue, { color: SEM.savings.text }]}>
                   {formatCurrency(monthlySummary.totalSavings)}
                 </Text>
               </View>
@@ -374,51 +375,54 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
           </>
         )}
 
-        {/* ── Lista de movimentações ────────────────────────────────────── */}
-        <View style={styles.listHeader}>
-          <Text style={styles.sectionTitle}>Movimentações do mês</Text>
+        {/* ── Movimentações recentes ─────────────────────────────────── */}
+        <View style={styles.listHeaderRow}>
+          <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>
+            MOVIMENTAÇÕES RECENTES
+          </Text>
           {isLoadingMonthly && (
-            <ActivityIndicator size="small" color={COLORS.primary} />
+            <ActivityIndicator size="small" color={accentColor} />
           )}
         </View>
 
         {!isLoadingMonthly && monthlyTransactions.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>💸</Text>
-            <Text style={styles.emptyTitle}>Nenhuma movimentação ainda</Text>
-            <Text style={styles.emptySubtext}>
-              Toque em "+ Adicionar dados" para{'\n'}registrar sua primeira transação.
+          <View style={[styles.emptyCard, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
+            <Feather name="inbox" size={28} color={P.textMuted} />
+            <Text style={[styles.emptyTitle, { color: P.textSecondary }]}>
+              Nenhuma movimentação
+            </Text>
+            <Text style={[styles.emptySub, { color: P.textMuted }]}>
+              Registre sua primeira transação acima.
             </Text>
           </View>
         ) : (
-          <FlatList
-            data={monthlyTransactions}
-            keyExtractor={keyExtractor}
-            renderItem={renderTransactionItem}
-            scrollEnabled={false}
-            ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
-            contentContainerStyle={styles.listContainer}
-          />
+          <>
+            <View style={[styles.listCard, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
+              <FlatList
+                data={monthlyTransactions}
+                keyExtractor={keyExtractor}
+                renderItem={renderItem}
+                scrollEnabled={false}
+              />
+            </View>
+
+            <TouchableOpacity
+              onPress={goToRelatorios}
+              activeOpacity={0.7}
+              style={[styles.seeMoreBtn, { borderColor: P.cardBorder }]}
+            >
+              <Text style={[styles.seeMoreText, { color: accentColor }]}>
+                Ver todos os relatórios
+              </Text>
+              <Feather name="chevron-right" size={14} color={accentColor} />
+            </TouchableOpacity>
+          </>
         )}
 
-        {/* ── Botão "Ver mais" ───────────────────────────────────────────── */}
-        {monthlyTransactions.length > 0 && (
-          <TouchableOpacity
-            onPress={goToRelatorios}
-            activeOpacity={0.7}
-            style={styles.seeMoreButton}
-          >
-            <Text style={styles.seeMoreText}>Ver mais</Text>
-            <Text style={styles.seeMoreArrow}>→</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Espaço inferior para o scroll não cortar conteúdo */}
-        <View style={styles.bottomSpacing} />
-
+        <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* ── Modal de inserção de dados ────────────────────────────────────── */}
+      {/* ── Modal de nova movimentação ─────────────────────────────────────── */}
       <Modal
         visible={isModalVisible}
         animationType="slide"
@@ -429,35 +433,112 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKeyboardView}
+            style={styles.modalKbView}
           >
-            <View style={styles.modalContainer}>
+            <View style={[styles.modalSheet, { backgroundColor: P.modalBg }]}>
 
-              {/* Barra de arrastar (visual) */}
-              <View style={styles.modalDragBar} />
+              {/* Handle */}
+              <View style={[styles.modalHandle, { backgroundColor: P.divider }]} />
 
-              {/* Cabeçalho do modal */}
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Nova movimentação</Text>
+              {/* Header do modal */}
+              <View style={styles.modalHead}>
+                <View>
+                  <Text style={[styles.modalTitle, { color: P.textPrimary }]}>
+                    Nova movimentação
+                  </Text>
+                  <Text style={[styles.modalSubtitle, { color: P.textMuted }]}>
+                    Registre uma entrada, gasto ou economia
+                  </Text>
+                </View>
                 <TouchableOpacity
                   onPress={closeModal}
                   disabled={isSaving}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={styles.modalCloseButton}
+                  style={[styles.closeBtn, { backgroundColor: P.inputBg, borderColor: P.inputBorder }]}
                 >
-                  <Text style={styles.modalCloseText}>✕</Text>
+                  <Feather name="x" size={14} color={P.textSecondary} />
                 </TouchableOpacity>
               </View>
 
-              {/* ── Campo: Título ──────────────────────────────────────── */}
-              <View style={styles.fieldContainer}>
-                <Text style={styles.fieldLabel}>Título</Text>
+              {/* Divisor */}
+              <View style={[styles.modalDivider, { backgroundColor: P.divider }]} />
+
+              {/* ── Tipo (primeiro campo, mais importante) ──────────── */}
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>
+                  Tipo de movimentação
+                </Text>
+                <View style={styles.typeRow}>
+                  {TYPE_OPTIONS.map((opt) => {
+                    const sel = form.type === opt.type;
+
+                    // Cor semântica por tipo
+                    let semColor = SEM.expense.text;
+                    let semBg    = SEM.expense.bg;
+                    let semBdr   = SEM.expense.border;
+                    if (opt.type === 'entrada') {
+                      semColor = SEM.income.text;
+                      semBg    = SEM.income.bg;
+                      semBdr   = SEM.income.border;
+                    } else if (opt.type === 'economia') {
+                      semColor = SEM.savings.text;
+                      semBg    = SEM.savings.bg;
+                      semBdr   = SEM.savings.border;
+                    }
+
+                    return (
+                      <TouchableOpacity
+                        key={opt.type}
+                        onPress={() => updateField('type', opt.type)}
+                        disabled={isSaving}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.typeBtn,
+                          {
+                            backgroundColor: sel ? semBg    : P.inputBg,
+                            borderColor:     sel ? semBdr   : P.inputBorder,
+                            borderWidth:     sel ? 1.5 : 1,
+                          },
+                        ]}
+                      >
+                        <Feather
+                          name={opt.icon}
+                          size={14}
+                          color={sel ? semColor : P.textMuted}
+                        />
+                        <Text style={[
+                          styles.typeBtnText,
+                          {
+                            color:      sel ? semColor : P.textMuted,
+                            fontWeight: sel ? '600' : '400',
+                          },
+                        ]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* ── Título ───────────────────────────────────────────── */}
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>
+                  Título
+                </Text>
                 <TextInput
-                  style={styles.textInput}
+                  style={[
+                    styles.formInput,
+                    {
+                      backgroundColor: P.inputBg,
+                      borderColor:     P.inputBorder,
+                      color:           P.textPrimary,
+                    },
+                  ]}
                   placeholder="Ex: Aluguel, Salário, Mercado…"
-                  placeholderTextColor="#9ca3af"
+                  placeholderTextColor={P.textMuted}
                   value={form.title}
-                  onChangeText={(text) => updateField('title', text)}
+                  onChangeText={(t) => updateField('title', t)}
                   autoCapitalize="sentences"
                   returnKeyType="next"
                   editable={!isSaving}
@@ -465,516 +546,323 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 />
               </View>
 
-              {/* ── Campo: Valor ───────────────────────────────────────── */}
-              <View style={styles.fieldContainer}>
-                <Text style={styles.fieldLabel}>Valor (R$)</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="0,00"
-                  placeholderTextColor="#9ca3af"
-                  value={form.amount}
-                  onChangeText={(text) => {
-                    // Permite apenas números, vírgula e ponto
-                    const filtered = text.replace(/[^0-9.,]/g, '');
-                    updateField('amount', filtered);
-                  }}
-                  keyboardType="decimal-pad"
-                  returnKeyType="done"
-                  editable={!isSaving}
-                />
-              </View>
-
-              {/* ── Seletor de Tipo ────────────────────────────────────── */}
-              <View style={styles.fieldContainer}>
-                <Text style={styles.fieldLabel}>Tipo</Text>
-                <View style={styles.typeSelector}>
-
-                  {/* Botão: Gasto */}
-                  <TouchableOpacity
-                    onPress={() => updateField('type', 'gasto')}
-                    disabled={isSaving}
-                    activeOpacity={0.8}
-                    style={[
-                      styles.typeButton,
-                      form.type === 'gasto'
-                        ? { backgroundColor: COLORS.expense.text, borderColor: COLORS.expense.text }
-                        : { backgroundColor: COLORS.expense.bg, borderColor: COLORS.expense.border },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.typeButtonText,
-                        { color: form.type === 'gasto' ? '#ffffff' : COLORS.expense.text },
-                      ]}
-                    >
-                      🔴 Gasto
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* Botão: Recebimento */}
-                  <TouchableOpacity
-                    onPress={() => updateField('type', 'entrada')}
-                    disabled={isSaving}
-                    activeOpacity={0.8}
-                    style={[
-                      styles.typeButton,
-                      form.type === 'entrada'
-                        ? { backgroundColor: COLORS.income.text, borderColor: COLORS.income.text }
-                        : { backgroundColor: COLORS.income.bg, borderColor: COLORS.income.border },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.typeButtonText,
-                        { color: form.type === 'entrada' ? '#ffffff' : COLORS.income.text },
-                      ]}
-                    >
-                      💚 Recebimento
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* Botão: Economia */}
-                  <TouchableOpacity
-                    onPress={() => updateField('type', 'economia')}
-                    disabled={isSaving}
-                    activeOpacity={0.8}
-                    style={[
-                      styles.typeButton,
-                      form.type === 'economia'
-                        ? { backgroundColor: COLORS.savings.text, borderColor: COLORS.savings.text }
-                        : { backgroundColor: COLORS.savings.bg, borderColor: COLORS.savings.border },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.typeButtonText,
-                        { color: form.type === 'economia' ? '#ffffff' : COLORS.savings.text },
-                      ]}
-                    >
-                      💙 Economia
-                    </Text>
-                  </TouchableOpacity>
-
+              {/* ── Valor ────────────────────────────────────────────── */}
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>
+                  Valor (R$)
+                </Text>
+                <View style={[
+                  styles.amountRow,
+                  { backgroundColor: P.inputBg, borderColor: P.inputBorder },
+                ]}>
+                  <Text style={[styles.amountPrefix, { color: P.textMuted }]}>R$</Text>
+                  <TextInput
+                    style={[styles.amountInput, { color: P.textPrimary }]}
+                    placeholder="0,00"
+                    placeholderTextColor={P.textMuted}
+                    value={form.amount}
+                    onChangeText={(t) => updateField('amount', t.replace(/[^0-9.,]/g, ''))}
+                    keyboardType="decimal-pad"
+                    returnKeyType="done"
+                    editable={!isSaving}
+                  />
                 </View>
               </View>
 
-              {/* ── Mensagem de erro ───────────────────────────────────── */}
+              {/* ── Erro ─────────────────────────────────────────────── */}
               {formError !== null && (
-                <View style={styles.errorContainer}>
+                <View style={styles.errorBox}>
+                  <Feather name="alert-circle" size={13} color="#dc2626" style={{ marginRight: 7 }} />
                   <Text style={styles.errorText}>{formError}</Text>
                 </View>
               )}
 
-              {/* ── Botão Salvar ───────────────────────────────────────── */}
+              {/* ── Botão salvar ──────────────────────────────────────── */}
               <TouchableOpacity
                 onPress={handleSave}
                 disabled={isSaving}
                 activeOpacity={0.85}
                 style={[
-                  styles.saveButton,
-                  isSaving && styles.saveButtonDisabled,
+                  styles.saveBtn,
+                  { backgroundColor: isSaving ? '#93bbff' : accentColor },
                 ]}
               >
                 {isSaving ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Text style={styles.saveButtonText}>Salvar</Text>
+                  <>
+                    <Feather name="check" size={15} color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text style={styles.saveBtnText}>Salvar movimentação</Text>
+                  </>
                 )}
               </TouchableOpacity>
 
-              {/* Botão cancelar secundário */}
+              {/* ── Botão cancelar ────────────────────────────────────── */}
               <TouchableOpacity
                 onPress={closeModal}
                 disabled={isSaving}
                 activeOpacity={0.7}
-                style={styles.cancelButton}
+                style={styles.cancelBtn}
               >
-                <Text style={styles.cancelButtonText}>Cancelar</Text>
+                <Text style={[styles.cancelBtnText, { color: P.textMuted }]}>
+                  Cancelar
+                </Text>
               </TouchableOpacity>
 
             </View>
           </KeyboardAvoidingView>
         </View>
       </Modal>
-
     </SafeAreaView>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
+// Apenas propriedades estáticas aqui.
+// Cores dinâmicas (isDark, accentColor, semânticas) são aplicadas inline no JSX.
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
+  safeArea:     { flex: 1 },
+  scroll:       { flex: 1 },
+  scrollContent:{ paddingHorizontal: 20, paddingTop: 20 },
 
-  // ── Saudação ────────────────────────────────────────────────────────────
-  greetingContainer: {
+  // ── Saudação ───────────────────────────────────────────────────────────
+  greetRow:   {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 20,
   },
-  greetingText: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: COLORS.navy,
-    letterSpacing: -0.3,
-  },
-  greetingSubtext: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginTop: 2,
-  },
-  greetingBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#e8f0fe',
+  greetName:  { fontSize: 20, fontWeight: '700', letterSpacing: -0.3, marginBottom: 2 },
+  greetSub:   { fontSize: 13 },
+  greetBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  greetingBadgeText: {
-    fontSize: 22,
-  },
 
-  // ── Botão de adicionar ───────────────────────────────────────────────────
-  addButton: {
-    backgroundColor: COLORS.navy,
-    borderRadius: 14,
-    paddingVertical: 16,
+  // ── Botão primário ──────────────────────────────────────────────────────
+  addBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-    shadowColor: COLORS.navy,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
+    borderRadius: 8,
+    paddingVertical: 13,
+    marginBottom: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  addButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
+  addBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
 
-  // ── Seções ───────────────────────────────────────────────────────────────
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1f2937',
+  // ── Loading ─────────────────────────────────────────────────────────────
+  loadingRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 28, gap: 10 },
+  loadingText: { fontSize: 13 },
+
+  // ── Labels de seção ─────────────────────────────────────────────────────
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.6,
     marginBottom: 12,
   },
-  listHeader: {
+  listHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 8,
     marginTop: 8,
   },
 
-  // ── Loading cards ─────────────────────────────────────────────────────────
-  loadingCards: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 32,
-    gap: 10,
-  },
-  loadingText: {
-    fontSize: 13,
-    color: '#9ca3af',
-  },
-
-  // ── Grid de cards ─────────────────────────────────────────────────────────
+  // ── Grid de cards ────────────────────────────────────────────────────────
   cardsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 24,
+    gap: 10,
+    marginBottom: 28,
   },
   card: {
-    width: '47%',
-    borderRadius: 14,
-    borderWidth: 1.5,
-    padding: 16,
-    minHeight: 100,
-    justifyContent: 'space-between',
+    width: '47.8%',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 14,
   },
-  cardEmoji: {
-    fontSize: 20,
-    marginBottom: 8,
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
   },
   cardLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    fontWeight: '500',
-    marginBottom: 4,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   cardValue: {
     fontSize: 17,
     fontWeight: '800',
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
   },
 
-  // ── Lista de transações ───────────────────────────────────────────────────
-  listContainer: {
-    paddingBottom: 4,
-  },
-  transactionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
+  // ── Lista de transações ──────────────────────────────────────────────────
+  listCard: {
+    borderRadius: 10,
     borderWidth: 1,
-    paddingVertical: 12,
-    paddingRight: 14,
     overflow: 'hidden',
+    marginBottom: 8,
   },
-  transactionIndicator: {
-    width: 4,
-    alignSelf: 'stretch',
-    marginRight: 12,
-    borderRadius: 2,
-    marginLeft: 0,
-  },
-  transactionContent: {
-    flex: 1,
-    marginRight: 8,
-  },
-  transactionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 3,
-  },
-  transactionDate: {
-    fontSize: 12,
-    color: '#9ca3af',
-  },
-  transactionRight: {
-    alignItems: 'flex-end',
-    gap: 5,
-  },
-  transactionAmount: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  transactionBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
-  },
-  transactionBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#ffffff',
-    letterSpacing: 0.3,
-  },
-  itemSeparator: {
-    height: 8,
-  },
-
-  // ── Estado vazio ──────────────────────────────────────────────────────────
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 32,
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-  },
-  emptyEmoji: {
-    fontSize: 40,
-    marginBottom: 10,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 6,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    color: '#9ca3af',
-    textAlign: 'center',
-    lineHeight: 19,
-  },
-
-  // ── Botão "Ver mais" ──────────────────────────────────────────────────────
-  seeMoreButton: {
+  txRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    marginTop: 12,
-    borderRadius: 12,
-    backgroundColor: '#ffffff',
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
-    gap: 6,
-  },
-  seeMoreText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.primary,
-  },
-  seeMoreArrow: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.primary,
-  },
-
-  bottomSpacing: {
-    height: 40,
-  },
-
-  // ── Modal ─────────────────────────────────────────────────────────────────
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'flex-end',
-  },
-  modalKeyboardView: {
-    width: '100%',
-  },
-  modalContainer: {
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
-    paddingTop: 12,
-  },
-  modalDragBar: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 19,
-    fontWeight: '700',
-    color: COLORS.navy,
-  },
-  modalCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#f3f4f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalCloseText: {
-    fontSize: 13,
-    color: '#6b7280',
-    fontWeight: '600',
-  },
-
-  // ── Campos do formulário ──────────────────────────────────────────────────
-  fieldContainer: {
-    marginBottom: 16,
-  },
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 7,
-  },
-  textInput: {
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    paddingHorizontal: 14,
     paddingVertical: 13,
-    fontSize: 15,
-    color: '#1f2937',
-    backgroundColor: '#f9fafb',
+    paddingHorizontal: 14,
   },
+  txDot:    { width: 8, height: 8, borderRadius: 4, marginRight: 12, flexShrink: 0 },
+  txMid:    { flex: 1, marginRight: 8 },
+  txTitle:  { fontSize: 13, fontWeight: '500', marginBottom: 2 },
+  txDate:   { fontSize: 11 },
+  txRight:  { alignItems: 'flex-end', gap: 5 },
+  txAmount: { fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
+  txBadge:  { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  txBadgeText: { fontSize: 10, fontWeight: '600' },
 
-  // ── Seletor de tipo ───────────────────────────────────────────────────────
-  typeSelector: {
-    flexDirection: 'row',
+  // ── Estado vazio ─────────────────────────────────────────────────────────
+  emptyCard:  {
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    paddingVertical: 36,
     gap: 8,
   },
-  typeButton: {
-    flex: 1,
-    paddingVertical: 11,
-    borderRadius: 10,
-    borderWidth: 1.5,
+  emptyTitle: { fontSize: 14, fontWeight: '500', marginTop: 4 },
+  emptySub:   { fontSize: 12, textAlign: 'center' },
+
+  // ── Botão "ver mais" ─────────────────────────────────────────────────────
+  seeMoreBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingVertical: 11,
+    gap: 5,
   },
-  typeButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
+  seeMoreText: { fontSize: 13, fontWeight: '500' },
+
+  // ── Modal ────────────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalKbView: { width: '100%' },
+  modalSheet:  {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    paddingTop: 14,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  modalHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  modalTitle:    { fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 3 },
+  modalSubtitle: { fontSize: 12 },
+  closeBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  modalDivider: { height: 1, marginBottom: 20 },
+
+  // ── Formulário ────────────────────────────────────────────────────────────
+  formField: { marginBottom: 16 },
+  formLabel: { fontSize: 12, fontWeight: '500', marginBottom: 7, letterSpacing: 0.1 },
+  formInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
   },
 
-  // ── Erro do formulário ────────────────────────────────────────────────────
-  errorContainer: {
+  // Seletor de tipo
+  typeRow: { flexDirection: 'row', gap: 8 },
+  typeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  typeBtnText: { fontSize: 12 },
+
+  // Campo de valor com prefixo R$
+  amountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  amountPrefix: {
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  amountInput: {
+    flex: 1,
+    paddingVertical: 11,
+    paddingRight: 12,
+    fontSize: 14,
+  },
+
+  // Erro
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 10,
-    paddingHorizontal: 14,
+    borderRadius: 8,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 14,
   },
-  errorText: {
-    fontSize: 13,
-    color: '#dc2626',
-    lineHeight: 18,
-  },
+  errorText: { flex: 1, fontSize: 13, color: '#dc2626', lineHeight: 18 },
 
-  // ── Botões de ação do modal ───────────────────────────────────────────────
-  saveButton: {
-    backgroundColor: COLORS.navy,
-    borderRadius: 13,
-    paddingVertical: 16,
+  // Botões de ação
+  saveBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 8,
+    paddingVertical: 14,
     marginBottom: 10,
-    shadowColor: COLORS.navy,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
   },
-  saveButtonDisabled: {
-    backgroundColor: '#93a8c9',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  saveButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  cancelButton: {
-    paddingVertical: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButtonText: {
-    fontSize: 14,
-    color: '#9ca3af',
-    fontWeight: '500',
-  },
+  saveBtnText:   { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  cancelBtn:     { paddingVertical: 12, alignItems: 'center' },
+  cancelBtnText: { fontSize: 13 },
 });

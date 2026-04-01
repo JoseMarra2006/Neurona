@@ -14,396 +14,324 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 
 import type { GoalsMainScreenProps } from '../../types/navigation';
 import { useGoals, type GoalWithProgress } from '../../database/useGoals';
+import { useAppTheme } from '../../contexts/ThemeContext';
 
-// ─── Constantes de cor ────────────────────────────────────────────────────────
+// ─── Cores semânticas (IMUTÁVEIS) ─────────────────────────────────────────────
 
-const COLORS = {
-  navy: '#0f2044',
-  primary: '#2f78f0',
-  income: { bg: '#f0fdf4', border: '#bbf7d0', text: '#16a34a' },
-  expense: { bg: '#fef2f2', border: '#fecaca', text: '#dc2626' },
-  savings: { bg: '#eff6ff', border: '#bfdbfe', text: '#2563eb' },
-  purple: { bg: '#faf5ff', border: '#e9d5ff', text: '#7c3aed' },
-};
+function getSemantic(isDark: boolean) {
+  return {
+    income:  { text: '#16a34a', bg: isDark ? '#071a0f' : '#f0fdf4', border: isDark ? '#14532d' : '#bbf7d0' },
+    expense: { text: '#dc2626', bg: isDark ? '#1c0707' : '#fef2f2', border: isDark ? '#7f1d1d' : '#fecaca' },
+    savings: { text: '#2563eb', bg: isDark ? '#060e1f' : '#eff6ff', border: isDark ? '#1e3a5f' : '#bfdbfe' },
+    surplus: { text: '#7c3aed', bg: isDark ? '#130a24' : '#faf5ff', border: isDark ? '#4c1d95' : '#e9d5ff' },
+  };
+}
 
 // ─── Utilitários ──────────────────────────────────────────────────────────────
 
-/**
- * Formata um número como moeda BRL.
- * @example formatCurrency(1234.5) → "R$ 1.234,50"
- */
-function formatCurrency(value: number): string {
-  return 'R$ ' + Math.abs(value)
-    .toFixed(2)
-    .replace('.', ',')
-    .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+function formatCurrency(v: number): string {
+  return 'R$ ' + Math.abs(v).toFixed(2)
+    .replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
-/**
- * Formata uma string ISO 8601 para "DD/MM/AAAA".
- */
-function formatDate(isoDate: string): string {
-  const datePart = isoDate.split('T')[0];
-  if (!datePart) return isoDate;
-  const parts = datePart.split('-');
-  if (parts.length !== 3) return isoDate;
-  const [year, month, day] = parts;
-  return `${day}/${month}/${year}`;
+function monthsUntil(iso: string): number {
+  const now = new Date(), target = new Date(iso);
+  if (target.getTime() <= now.getTime()) return 0;
+  return Math.max(0,
+    (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth())
+  );
 }
 
-/**
- * Calcula quantos meses faltam entre hoje e uma data ISO.
- * Retorna 0 se a data já passou.
- */
-function monthsUntil(isoDate: string): number {
-  const now = new Date();
-  const target = new Date(isoDate);
-  const diffMs = target.getTime() - now.getTime();
-  if (diffMs <= 0) return 0;
-  const diffMonths = (target.getFullYear() - now.getFullYear()) * 12 +
-    (target.getMonth() - now.getMonth());
-  return Math.max(0, diffMonths);
-}
+// ─── Tipo do formulário ───────────────────────────────────────────────────────
 
-// ─── Tipo do formulário do modal ──────────────────────────────────────────────
+interface GoalForm { name: string; targetAmount: string; deadlineMonths: string; }
+const INITIAL_FORM: GoalForm = { name: '', targetAmount: '', deadlineMonths: '' };
 
-interface GoalForm {
-  name: string;
-  targetAmount: string;
-  deadlineMonths: string;
-}
-
-const INITIAL_FORM: GoalForm = {
-  name: '',
-  targetAmount: '',
-  deadlineMonths: '',
-};
-
-// ─── Componente principal ─────────────────────────────────────────────────────
+// ─── Componente ──────────────────────────────────────────────────────────────
 
 export default function GoalsMainScreen({ navigation }: GoalsMainScreenProps): React.JSX.Element {
+  const { accentColor, isDark } = useAppTheme();
+
   const {
-    goalsWithProgress,
-    isLoading,
-    error,
-    addGoal,
-    deleteGoal,
-    refreshGoals,
+    goalsWithProgress, isLoading, error,
+    addGoal, deleteGoal, refreshGoals,
   } = useGoals();
 
-  // ── Estado do modal ───────────────────────────────────────────────────────
   const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
   const [form, setForm] = useState<GoalForm>(INITIAL_FORM);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // ── Abrir / fechar modal ──────────────────────────────────────────────────
-  const openModal = useCallback((): void => {
-    setForm(INITIAL_FORM);
-    setFormError(null);
-    setIsModalVisible(true);
+  const P = {
+    screenBg:      isDark ? '#0d1117' : '#f6f8fa',
+    cardBg:        isDark ? '#161b22' : '#ffffff',
+    cardBorder:    isDark ? '#30363d' : '#d0d7de',
+    textPrimary:   isDark ? '#e6edf3' : '#1f2328',
+    textSecondary: isDark ? '#8b949e' : '#57606a',
+    textMuted:     isDark ? '#6e7681' : '#9198a1',
+    inputBg:       isDark ? '#0d1117' : '#f6f8fa',
+    inputBorder:   isDark ? '#30363d' : '#d0d7de',
+    divider:       isDark ? '#21262d' : '#eaecef',
+    progressTrack: isDark ? '#21262d' : '#eaecef',
+    valueBg:       isDark ? '#0d1117' : '#f6f8fa',
+    valueBorder:   isDark ? '#21262d' : '#eaecef',
+    tipBg:         isDark ? '#060e1f' : '#eff6ff',
+    tipBorder:     isDark ? '#1e3a5f' : '#bfdbfe',
+    tipText:       isDark ? '#93bbff' : '#1e40af',
+    badgeBg:       isDark ? '#21262d' : '#f0f6ff',
+    badgeBorder:   isDark ? '#30363d' : '#d0d7de',
+    sectionLabel:  isDark ? '#8b949e' : '#57606a',
+  };
+
+  const SEM = getSemantic(isDark);
+
+  const openModal = useCallback(() => {
+    setForm(INITIAL_FORM); setFormError(null); setIsModalVisible(true);
   }, []);
 
-  const closeModal = useCallback((): void => {
+  const closeModal = useCallback(() => {
     if (isSaving) return;
-    setIsModalVisible(false);
-    setForm(INITIAL_FORM);
-    setFormError(null);
+    setIsModalVisible(false); setForm(INITIAL_FORM); setFormError(null);
   }, [isSaving]);
 
-  // ── Atualizar campo do formulário ─────────────────────────────────────────
   const updateField = useCallback(
-    <K extends keyof GoalForm>(key: K, value: GoalForm[K]): void => {
-      setForm((prev) => ({ ...prev, [key]: value }));
-      setFormError(null);
-    },
-    []
+    <K extends keyof GoalForm>(key: K, value: GoalForm[K]) => {
+      setForm((p) => ({ ...p, [key]: value })); setFormError(null);
+    }, []
   );
 
-  // ── Validação do formulário ───────────────────────────────────────────────
   const validateForm = useCallback((): boolean => {
     setFormError(null);
-
-    if (!form.name.trim()) {
-      setFormError('O nome da meta é obrigatório.');
-      return false;
-    }
-    if (form.name.trim().length < 2) {
-      setFormError('O nome da meta deve ter pelo menos 2 caracteres.');
-      return false;
-    }
-    if (!form.targetAmount.trim()) {
-      setFormError('O valor da meta é obrigatório.');
-      return false;
-    }
-
-    const parsedAmount = parseFloat(form.targetAmount.replace(',', '.'));
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setFormError('Informe um valor numérico maior que zero.');
-      return false;
-    }
-
-    if (!form.deadlineMonths.trim()) {
-      setFormError('O prazo em meses é obrigatório.');
-      return false;
-    }
-
-    const parsedMonths = parseInt(form.deadlineMonths, 10);
-    if (isNaN(parsedMonths) || parsedMonths <= 0) {
-      setFormError('Informe um prazo em meses maior que zero.');
-      return false;
-    }
-    if (parsedMonths > 600) {
-      setFormError('O prazo máximo é de 600 meses (50 anos).');
-      return false;
-    }
-
+    if (!form.name.trim()) { setFormError('O nome da meta é obrigatório.'); return false; }
+    if (form.name.trim().length < 2) { setFormError('Nome muito curto.'); return false; }
+    const amt = parseFloat(form.targetAmount.replace(',', '.'));
+    if (!form.targetAmount || isNaN(amt) || amt <= 0) { setFormError('Informe um valor maior que zero.'); return false; }
+    const m = parseInt(form.deadlineMonths, 10);
+    if (!form.deadlineMonths || isNaN(m) || m <= 0) { setFormError('Informe um prazo em meses maior que zero.'); return false; }
+    if (m > 600) { setFormError('Prazo máximo: 600 meses.'); return false; }
     return true;
   }, [form]);
 
-  // ── Salvar meta ───────────────────────────────────────────────────────────
   const handleSave = useCallback(async (): Promise<void> => {
     if (!validateForm()) return;
-
     setIsSaving(true);
     try {
-      const parsedAmount = parseFloat(form.targetAmount.replace(',', '.'));
-      const parsedMonths = parseInt(form.deadlineMonths, 10);
-
-      // Calcula a data alvo somando X meses a partir de hoje
       const deadline = new Date();
-      deadline.setMonth(deadline.getMonth() + parsedMonths);
-      const deadlineISO = deadline.toISOString();
-
+      deadline.setMonth(deadline.getMonth() + parseInt(form.deadlineMonths, 10));
       await addGoal({
         name: form.name.trim(),
-        target_amount: parsedAmount,
-        deadline_date: deadlineISO,
+        target_amount: parseFloat(form.targetAmount.replace(',', '.')),
+        deadline_date: deadline.toISOString(),
         current_amount: 0,
       });
-
-      setIsModalVisible(false);
-      setForm(INITIAL_FORM);
+      setIsModalVisible(false); setForm(INITIAL_FORM);
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Erro ao salvar meta. Tente novamente.';
-      setFormError(message);
+      setFormError(e instanceof Error ? e.message : 'Erro ao salvar.');
     } finally {
       setIsSaving(false);
     }
   }, [form, validateForm, addGoal]);
 
-  // ── Confirmar exclusão ────────────────────────────────────────────────────
-  const handleDeleteGoal = useCallback(
-    (goalId: number, goalName: string): void => {
-      Alert.alert(
-        'Excluir meta',
-        `Tem certeza que deseja excluir a meta "${goalName}"? Esta ação não pode ser desfeita.`,
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Excluir',
-            style: 'destructive',
-            onPress: () => deleteGoal(goalId),
-          },
-        ]
-      );
-    },
-    [deleteGoal]
-  );
+  const handleDelete = useCallback((id: number, name: string) => {
+    Alert.alert('Excluir meta', `Excluir "${name}"? Esta ação não pode ser desfeita.`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Excluir', style: 'destructive', onPress: () => deleteGoal(id) },
+    ]);
+  }, [deleteGoal]);
 
-  // ── Navegar para detalhes ─────────────────────────────────────────────────
-  const handleGoToDetails = useCallback(
-    (goalId: number, goalName: string): void => {
-      navigation.navigate('GoalDetails', { goalId, goalName });
-    },
-    [navigation]
-  );
+  const renderItem = useCallback(({ item }: { item: GoalWithProgress }) => {
+    const months  = monthsUntil(item.deadline_date);
+    const clamped = Math.min(item.progress_percent, 100);
+    const done    = item.progress_percent >= 100;
 
-  // ── Renderizar item da FlatList ───────────────────────────────────────────
-  const renderGoalItem = useCallback(
-    ({ item }: { item: GoalWithProgress }) => {
-      const months = monthsUntil(item.deadline_date);
-      const progressClamped = Math.min(item.progress_percent, 100);
-      const isCompleted = item.progress_percent >= 100;
+    const progressColor = done ? SEM.income.text : accentColor;
 
-      return (
-        <View style={styles.goalCard}>
-          {/* Cabeçalho do card: nome e badge de progresso */}
-          <View style={styles.goalCardHeader}>
-            <View style={styles.goalCardTitleRow}>
-              <Text style={styles.goalEmoji}>🎯</Text>
-              <Text style={styles.goalName} numberOfLines={1}>
-                {item.name}
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.progressBadge,
-                isCompleted ? styles.progressBadgeCompleted : styles.progressBadgeActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.progressBadgeText,
-                  isCompleted ? styles.progressBadgeTextCompleted : styles.progressBadgeTextActive,
-                ]}
-              >
-                {isCompleted ? '✓ Concluída' : `${item.progress_percent}%`}
-              </Text>
-            </View>
+    return (
+      <View style={[styles.goalCard, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
+
+        {/* ── Header ─────────────────────────────────────────── */}
+        <View style={styles.goalHead}>
+          <View style={[styles.goalIcon, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
+            <Feather name="target" size={15} color={accentColor} />
           </View>
-
-          {/* Barra de progresso mini */}
-          <View style={styles.miniProgressContainer}>
-            <View style={styles.miniProgressTrack}>
-              <View
-                style={[
-                  styles.miniProgressFill,
-                  {
-                    width: `${progressClamped}%`,
-                    backgroundColor: isCompleted ? COLORS.income.text : COLORS.primary,
-                  },
-                ]}
-              />
-            </View>
-          </View>
-
-          {/* Informações de valor */}
-          <View style={styles.goalCardValues}>
-            <View style={styles.goalCardValueItem}>
-              <Text style={styles.goalCardValueLabel}>Acumulado</Text>
-              <Text style={[styles.goalCardValueText, { color: COLORS.savings.text }]}>
-                {formatCurrency(item.computed_current_amount)}
-              </Text>
-            </View>
-            <View style={styles.goalCardValueItem}>
-              <Text style={styles.goalCardValueLabel}>Meta</Text>
-              <Text style={[styles.goalCardValueText, { color: COLORS.navy }]}>
-                {formatCurrency(item.target_amount)}
-              </Text>
-            </View>
-            <View style={styles.goalCardValueItem}>
-              <Text style={styles.goalCardValueLabel}>Prazo</Text>
-              <Text style={[styles.goalCardValueText, { color: COLORS.purple.text }]}>
-                {months > 0 ? `${months} meses` : 'Expirado'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Botões de ação */}
-          <View style={styles.goalCardActions}>
-            <TouchableOpacity
-              onPress={() => handleGoToDetails(item.id, item.name)}
-              activeOpacity={0.8}
-              style={styles.detailsButton}
-            >
-              <Text style={styles.detailsButtonText}>📊 Detalhes</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleDeleteGoal(item.id, item.name)}
-              activeOpacity={0.8}
-              style={styles.deleteButton}
-            >
-              <Text style={styles.deleteButtonText}>🗑️</Text>
-            </TouchableOpacity>
+          <Text style={[styles.goalName, { color: P.textPrimary }]} numberOfLines={1}>
+            {item.name}
+          </Text>
+          {/* Badge de progresso */}
+          <View style={[
+            styles.progressPill,
+            {
+              backgroundColor: done ? SEM.income.bg  : P.badgeBg,
+              borderColor:     done ? SEM.income.border : P.badgeBorder,
+            },
+          ]}>
+            {done && (
+              <Feather name="check" size={11} color={SEM.income.text} style={{ marginRight: 3 }} />
+            )}
+            <Text style={[styles.progressPillText, { color: done ? SEM.income.text : accentColor }]}>
+              {done ? 'Concluída' : `${item.progress_percent}%`}
+            </Text>
           </View>
         </View>
-      );
-    },
-    [handleGoToDetails, handleDeleteGoal]
-  );
 
-  const keyExtractor = useCallback(
-    (item: GoalWithProgress) => String(item.id),
-    []
-  );
+        {/* ── Barra de progresso técnica ─────────────────────── */}
+        <View style={styles.progressSection}>
+          <View style={[styles.progressTrack, { backgroundColor: P.progressTrack }]}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${clamped}%` as any, backgroundColor: progressColor },
+              ]}
+            />
+          </View>
+          <View style={styles.progressMeta}>
+            <Text style={[styles.progressMetaText, { color: P.textMuted }]}>
+              {formatCurrency(item.computed_current_amount)} acumulados
+            </Text>
+            <Text style={[styles.progressMetaText, { color: P.textMuted }]}>
+              meta: {formatCurrency(item.target_amount)}
+            </Text>
+          </View>
+        </View>
 
-  // ── Render ────────────────────────────────────────────────────────────────
+        {/* ── Métricas ───────────────────────────────────────── */}
+        <View style={[styles.divider, { backgroundColor: P.divider }]} />
+        <View style={styles.metricsRow}>
+
+          <View style={[styles.metricCell, { borderRightColor: P.divider }]}>
+            <Text style={[styles.metricLabel, { color: P.textMuted }]}>RESTANTE</Text>
+            <Text style={[styles.metricValue, { color: SEM.savings.text }]}>
+              {formatCurrency(Math.max(0, item.target_amount - item.computed_current_amount))}
+            </Text>
+          </View>
+
+          <View style={[styles.metricCell, { borderRightColor: P.divider }]}>
+            <Text style={[styles.metricLabel, { color: P.textMuted }]}>PRAZO</Text>
+            <Text style={[styles.metricValue, { color: months > 0 ? SEM.surplus.text : SEM.expense.text }]}>
+              {months > 0 ? `${months}m` : 'Exp.'}
+            </Text>
+          </View>
+
+          <View style={styles.metricCell}>
+            <Text style={[styles.metricLabel, { color: P.textMuted }]}>PROGRESSO</Text>
+            <Text style={[styles.metricValue, { color: progressColor }]}>
+              {item.progress_percent}%
+            </Text>
+          </View>
+
+        </View>
+
+        {/* ── Ações ──────────────────────────────────────────── */}
+        <View style={[styles.divider, { backgroundColor: P.divider }]} />
+        <View style={styles.actionsRow}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('GoalDetails', { goalId: item.id, goalName: item.name })}
+            activeOpacity={0.8}
+            style={[styles.detailsBtn, { backgroundColor: accentColor }]}
+          >
+            <Feather name="bar-chart-2" size={13} color="#ffffff" style={{ marginRight: 6 }} />
+            <Text style={styles.detailsBtnText}>Detalhes e análise</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => handleDelete(item.id, item.name)}
+            activeOpacity={0.8}
+            style={[styles.deleteBtn, { backgroundColor: SEM.expense.bg, borderColor: SEM.expense.border }]}
+          >
+            <Feather name="trash-2" size={14} color={SEM.expense.text} />
+          </TouchableOpacity>
+        </View>
+
+      </View>
+    );
+  }, [navigation, accentColor, P, SEM, handleDelete]);
+
+  const keyExtractor = useCallback((item: GoalWithProgress) => String(item.id), []);
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
       <FlatList
         data={goalsWithProgress}
         keyExtractor={keyExtractor}
-        renderItem={renderGoalItem}
+        renderItem={renderItem}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         onRefresh={refreshGoals}
         refreshing={isLoading}
         ListHeaderComponent={
           <>
-            {/* ── Cabeçalho ──────────────────────────────────────────── */}
-            <View style={styles.screenHeader}>
+            {/* Cabeçalho */}
+            <View style={styles.pageHeader}>
               <View>
-                <Text style={styles.screenTitle}>Suas Metas</Text>
-                <Text style={styles.screenSubtitle}>
-                  Acompanhe o progresso das suas metas financeiras
+                <Text style={[styles.pageTitle, { color: P.textPrimary }]}>Metas</Text>
+                <Text style={[styles.pageSub, { color: P.textSecondary }]}>
+                  Acompanhe seus objetivos financeiros
                 </Text>
               </View>
-              <View style={styles.headerBadge}>
-                <Text style={styles.headerBadgeText}>🎯</Text>
+              <View style={[styles.headerIcon, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
+                <Feather name="target" size={20} color={accentColor} />
               </View>
             </View>
 
-            {/* ── Botão + Nova Meta ──────────────────────────────────── */}
+            {/* Botão nova meta */}
             <TouchableOpacity
               onPress={openModal}
               activeOpacity={0.85}
-              style={styles.addButton}
+              style={[styles.addBtn, { backgroundColor: accentColor }]}
             >
-              <Text style={styles.addButtonText}>+ Nova meta</Text>
+              <Feather name="plus" size={15} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text style={styles.addBtnText}>Nova meta</Text>
             </TouchableOpacity>
 
-            {/* ── Dica de vínculo ────────────────────────────────────── */}
-            <View style={styles.tipContainer}>
-              <Text style={styles.tipEmoji}>💡</Text>
-              <Text style={styles.tipText}>
-                O valor acumulado de cada meta é calculado automaticamente
-                a partir das economias registradas com o{' '}
-                <Text style={styles.tipHighlight}>mesmo título</Text> da meta.
+            {/* Dica de vínculo */}
+            <View style={[styles.tip, { backgroundColor: P.tipBg, borderColor: P.tipBorder }]}>
+              <Feather name="info" size={13} color={P.tipText} style={{ marginRight: 8, marginTop: 1 }} />
+              <Text style={[styles.tipText, { color: P.tipText }]}>
+                O valor acumulado é calculado automaticamente a partir das economias com o{' '}
+                <Text style={{ fontWeight: '700' }}>mesmo título</Text> da meta.
               </Text>
             </View>
 
-            {/* ── Erro do hook ───────────────────────────────────────── */}
+            {/* Erro */}
             {error !== null && (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorBannerText}>⚠️ {error}</Text>
+              <View style={[styles.errorBanner, { backgroundColor: SEM.expense.bg, borderColor: SEM.expense.border }]}>
+                <Feather name="alert-circle" size={13} color={SEM.expense.text} style={{ marginRight: 7 }} />
+                <Text style={[styles.errorBannerText, { color: SEM.expense.text }]}>{error}</Text>
               </View>
             )}
 
-            {/* ── Label da seção ─────────────────────────────────────── */}
             {goalsWithProgress.length > 0 && (
-              <Text style={styles.sectionLabel}>
-                {goalsWithProgress.length}{' '}
-                {goalsWithProgress.length === 1 ? 'meta cadastrada' : 'metas cadastradas'}
+              <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>
+                {goalsWithProgress.length} {goalsWithProgress.length === 1 ? 'META CADASTRADA' : 'METAS CADASTRADAS'}
               </Text>
             )}
           </>
         }
         ListEmptyComponent={
           isLoading ? (
-            <View style={styles.centerContainer}>
-              <ActivityIndicator size="large" color={COLORS.primary} />
-              <Text style={styles.loadingText}>Carregando metas…</Text>
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={accentColor} />
+              <Text style={[styles.centerText, { color: P.textMuted }]}>Carregando metas…</Text>
             </View>
           ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>🎯</Text>
-              <Text style={styles.emptyTitle}>Nenhuma meta criada</Text>
-              <Text style={styles.emptySubtext}>
-                Toque em "+ Nova meta" acima para{'\n'}
-                definir seu primeiro objetivo financeiro.
+            <View style={[styles.emptyCard, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
+              <Feather name="target" size={32} color={P.textMuted} />
+              <Text style={[styles.emptyTitle, { color: P.textSecondary }]}>Nenhuma meta</Text>
+              <Text style={[styles.emptySub, { color: P.textMuted }]}>
+                Defina seu primeiro objetivo financeiro acima.
               </Text>
             </View>
           )
         }
-        ListFooterComponent={<View style={styles.bottomSpacing} />}
+        ListFooterComponent={<View style={{ height: 40 }} />}
       />
 
-      {/* ── Modal de criação de meta ──────────────────────────────────────── */}
+      {/* ── Modal nova meta ──────────────────────────────────────────────────── */}
       <Modal
         visible={isModalVisible}
         animationType="slide"
@@ -414,118 +342,114 @@ export default function GoalsMainScreen({ navigation }: GoalsMainScreenProps): R
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKeyboardView}
+            style={styles.modalKbView}
           >
-            <View style={styles.modalContainer}>
-              {/* Barra de arrastar (visual) */}
-              <View style={styles.modalDragBar} />
+            <View style={[styles.modalSheet, { backgroundColor: P.cardBg }]}>
+              <View style={[styles.modalHandle, { backgroundColor: P.divider }]} />
 
-              {/* Cabeçalho do modal */}
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Nova meta</Text>
+              <View style={styles.modalHead}>
+                <View>
+                  <Text style={[styles.modalTitle, { color: P.textPrimary }]}>Nova meta</Text>
+                  <Text style={[styles.modalSubtitle, { color: P.textMuted }]}>
+                    Defina objetivo, valor e prazo
+                  </Text>
+                </View>
                 <TouchableOpacity
                   onPress={closeModal}
                   disabled={isSaving}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={styles.modalCloseButton}
+                  style={[styles.closeBtn, { backgroundColor: P.inputBg, borderColor: P.inputBorder }]}
                 >
-                  <Text style={styles.modalCloseText}>✕</Text>
+                  <Feather name="x" size={14} color={P.textSecondary} />
                 </TouchableOpacity>
               </View>
 
-              {/* ── Campo: Nome da meta ────────────────────────────────── */}
-              <View style={styles.fieldContainer}>
-                <Text style={styles.fieldLabel}>Nome da meta</Text>
+              <View style={[styles.modalDivider, { backgroundColor: P.divider }]} />
+
+              {/* Nome */}
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>Nome da meta</Text>
                 <TextInput
-                  style={styles.textInput}
-                  placeholder="Ex: Apartamento PG, Carro novo…"
-                  placeholderTextColor="#9ca3af"
+                  style={[styles.formInput, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.textPrimary }]}
+                  placeholder="Ex: Apartamento, Carro, Viagem…"
+                  placeholderTextColor={P.textMuted}
                   value={form.name}
-                  onChangeText={(text) => updateField('name', text)}
+                  onChangeText={(t) => updateField('name', t)}
                   autoCapitalize="sentences"
                   returnKeyType="next"
                   editable={!isSaving}
                   maxLength={80}
                 />
-                <Text style={styles.fieldHint}>
-                  Use o mesmo nome ao registrar economias no Dashboard
+                <Text style={[styles.formHint, { color: P.textMuted }]}>
+                  Use o mesmo nome ao registrar economias
                 </Text>
               </View>
 
-              {/* ── Campo: Valor da meta ───────────────────────────────── */}
-              <View style={styles.fieldContainer}>
-                <Text style={styles.fieldLabel}>Valor da meta (R$)</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Ex: 250000"
-                  placeholderTextColor="#9ca3af"
-                  value={form.targetAmount}
-                  onChangeText={(text) => {
-                    const filtered = text.replace(/[^0-9.,]/g, '');
-                    updateField('targetAmount', filtered);
-                  }}
-                  keyboardType="decimal-pad"
-                  returnKeyType="next"
-                  editable={!isSaving}
-                />
+              {/* Valor alvo */}
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>Valor alvo (R$)</Text>
+                <View style={[styles.amountRow, { backgroundColor: P.inputBg, borderColor: P.inputBorder }]}>
+                  <Text style={[styles.amountPrefix, { color: P.textMuted }]}>R$</Text>
+                  <TextInput
+                    style={[styles.amountInput, { color: P.textPrimary }]}
+                    placeholder="0,00"
+                    placeholderTextColor={P.textMuted}
+                    value={form.targetAmount}
+                    onChangeText={(t) => updateField('targetAmount', t.replace(/[^0-9.,]/g, ''))}
+                    keyboardType="decimal-pad"
+                    returnKeyType="next"
+                    editable={!isSaving}
+                  />
+                </View>
               </View>
 
-              {/* ── Campo: Prazo em meses ──────────────────────────────── */}
-              <View style={styles.fieldContainer}>
-                <Text style={styles.fieldLabel}>Prazo (em meses)</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Ex: 24 (para 2 anos)"
-                  placeholderTextColor="#9ca3af"
-                  value={form.deadlineMonths}
-                  onChangeText={(text) => {
-                    const filtered = text.replace(/[^0-9]/g, '');
-                    updateField('deadlineMonths', filtered);
-                  }}
-                  keyboardType="number-pad"
-                  returnKeyType="done"
-                  editable={!isSaving}
-                  onSubmitEditing={handleSave}
-                />
-                {form.deadlineMonths.trim().length > 0 && (
-                  <Text style={styles.fieldHint}>
-                    ≈ {(parseInt(form.deadlineMonths, 10) / 12).toFixed(1)} anos
-                  </Text>
-                )}
+              {/* Prazo */}
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>Prazo (meses)</Text>
+                <View style={[styles.amountRow, { backgroundColor: P.inputBg, borderColor: P.inputBorder }]}>
+                  <TextInput
+                    style={[styles.amountInput, { color: P.textPrimary, paddingLeft: 12 }]}
+                    placeholder="Ex: 24 para 2 anos"
+                    placeholderTextColor={P.textMuted}
+                    value={form.deadlineMonths}
+                    onChangeText={(t) => updateField('deadlineMonths', t.replace(/[^0-9]/g, ''))}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                    editable={!isSaving}
+                    onSubmitEditing={handleSave}
+                  />
+                  {form.deadlineMonths.trim().length > 0 && (
+                    <Text style={[styles.amountSuffix, { color: P.textMuted }]}>
+                      ≈ {(parseInt(form.deadlineMonths, 10) / 12).toFixed(1)} anos
+                    </Text>
+                  )}
+                </View>
               </View>
 
-              {/* ── Mensagem de erro ───────────────────────────────────── */}
               {formError !== null && (
-                <View style={styles.formErrorContainer}>
-                  <Text style={styles.formErrorText}>{formError}</Text>
+                <View style={styles.errorBox}>
+                  <Feather name="alert-circle" size={13} color="#dc2626" style={{ marginRight: 7 }} />
+                  <Text style={styles.errorText}>{formError}</Text>
                 </View>
               )}
 
-              {/* ── Botão Salvar ───────────────────────────────────────── */}
               <TouchableOpacity
                 onPress={handleSave}
                 disabled={isSaving}
                 activeOpacity={0.85}
-                style={[
-                  styles.saveButton,
-                  isSaving && styles.saveButtonDisabled,
-                ]}
+                style={[styles.saveBtn, { backgroundColor: isSaving ? '#93bbff' : accentColor }]}
               >
                 {isSaving ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Text style={styles.saveButtonText}>Criar meta</Text>
+                  <>
+                    <Feather name="check" size={15} color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text style={styles.saveBtnText}>Criar meta</Text>
+                  </>
                 )}
               </TouchableOpacity>
 
-              {/* Botão cancelar */}
-              <TouchableOpacity
-                onPress={closeModal}
-                disabled={isSaving}
-                activeOpacity={0.7}
-                style={styles.cancelButton}
-              >
-                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              <TouchableOpacity onPress={closeModal} disabled={isSaving} activeOpacity={0.7} style={styles.cancelBtn}>
+                <Text style={[styles.cancelText, { color: P.textMuted }]}>Cancelar</Text>
               </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
@@ -538,418 +462,87 @@ export default function GoalsMainScreen({ navigation }: GoalsMainScreenProps): R
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-  },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  separator: {
-    height: 12,
-  },
-  bottomSpacing: {
-    height: 40,
-  },
+  safeArea:    { flex: 1 },
+  listContent: { paddingHorizontal: 20, paddingTop: 20 },
 
-  // ── Cabeçalho da tela ──────────────────────────────────────────────────
-  screenHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  screenTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: COLORS.navy,
-    letterSpacing: -0.3,
-  },
-  screenSubtitle: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginTop: 2,
-  },
-  headerBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#faf5ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerBadgeText: {
-    fontSize: 22,
-  },
+  center:      { alignItems: 'center', paddingVertical: 48, gap: 10 },
+  centerText:  { fontSize: 14 },
 
-  // ── Botão de adicionar ─────────────────────────────────────────────────
-  addButton: {
-    backgroundColor: COLORS.navy,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    shadowColor: COLORS.navy,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  addButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
+  pageHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  pageTitle:   { fontSize: 22, fontWeight: '700', letterSpacing: -0.4, marginBottom: 2 },
+  pageSub:     { fontSize: 13 },
+  headerIcon:  { width: 44, height: 44, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // ── Dica de vínculo ─────────────────────────────────────────────────────
-  tipContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#eff6ff',
-    borderWidth: 1.5,
-    borderColor: '#bfdbfe',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 16,
-    gap: 8,
-  },
-  tipEmoji: {
-    fontSize: 16,
-    marginTop: 1,
-  },
-  tipText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#1e40af',
-    lineHeight: 18,
-  },
-  tipHighlight: {
-    fontWeight: '700',
-    color: '#1d4ed8',
-  },
+  addBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingVertical: 13, marginBottom: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 3 },
+  addBtnText:  { color: '#ffffff', fontSize: 14, fontWeight: '600' },
 
-  // ── Erro banner ─────────────────────────────────────────────────────────
-  errorBanner: {
-    backgroundColor: '#fef2f2',
-    borderWidth: 1.5,
-    borderColor: '#fecaca',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 16,
-  },
-  errorBannerText: {
-    fontSize: 13,
-    color: '#dc2626',
-    lineHeight: 18,
-  },
+  tip:         { flexDirection: 'row', alignItems: 'flex-start', borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 },
+  tipText:     { flex: 1, fontSize: 12, lineHeight: 18 },
 
-  // ── Section label ───────────────────────────────────────────────────────
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#374151',
-    marginBottom: 12,
-  },
+  errorBanner: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },
+  errorBannerText: { flex: 1, fontSize: 13 },
 
-  // ── Estados centralizados ───────────────────────────────────────────────
-  centerContainer: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  loadingText: {
-    marginTop: 14,
-    fontSize: 14,
-    color: '#9ca3af',
-  },
+  sectionLabel:{ fontSize: 11, fontWeight: '600', letterSpacing: 0.6, marginBottom: 12 },
 
-  // ── Estado vazio ────────────────────────────────────────────────────────
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-  },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    color: '#9ca3af',
-    textAlign: 'center',
-    lineHeight: 19,
-  },
+  emptyCard:   { borderRadius: 10, borderWidth: 1, alignItems: 'center', paddingVertical: 40, gap: 8 },
+  emptyTitle:  { fontSize: 15, fontWeight: '500', marginTop: 6 },
+  emptySub:    { fontSize: 13, textAlign: 'center' },
 
-  // ── Card de meta ────────────────────────────────────────────────────────
-  goalCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
-    padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  goalCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  goalCardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 10,
-    gap: 8,
-  },
-  goalEmoji: {
-    fontSize: 20,
-  },
-  goalName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.navy,
-    flex: 1,
-  },
-  progressBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  progressBadgeActive: {
-    backgroundColor: '#eff6ff',
-  },
-  progressBadgeCompleted: {
-    backgroundColor: '#f0fdf4',
-  },
-  progressBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  progressBadgeTextActive: {
-    color: COLORS.primary,
-  },
-  progressBadgeTextCompleted: {
-    color: COLORS.income.text,
-  },
+  // Card de meta
+  goalCard:    { borderRadius: 10, borderWidth: 1, overflow: 'hidden' },
+  goalHead:    { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, paddingBottom: 12 },
+  goalIcon:    { width: 34, height: 34, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  goalName:    { flex: 1, fontSize: 15, fontWeight: '600', letterSpacing: -0.2 },
+  progressPill:{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  progressPillText: { fontSize: 11, fontWeight: '600' },
 
-  // ── Mini barra de progresso ─────────────────────────────────────────────
-  miniProgressContainer: {
-    marginBottom: 14,
-  },
-  miniProgressTrack: {
-    height: 6,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  miniProgressFill: {
-    height: '100%',
-    borderRadius: 3,
-    minWidth: 2,
-  },
+  // Barra de progresso
+  progressSection: { paddingHorizontal: 16, paddingBottom: 14 },
+  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', marginBottom: 6 },
+  progressFill:  { height: '100%', borderRadius: 2, minWidth: 3 },
+  progressMeta:  { flexDirection: 'row', justifyContent: 'space-between' },
+  progressMetaText: { fontSize: 11 },
 
-  // ── Valores ─────────────────────────────────────────────────────────────
-  goalCardValues: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-  },
-  goalCardValueItem: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-  },
-  goalCardValueLabel: {
-    fontSize: 10,
-    color: '#9ca3af',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-    marginBottom: 3,
-  },
-  goalCardValueText: {
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-  },
+  divider:     { height: 1 },
 
-  // ── Botões de ação ──────────────────────────────────────────────────────
-  goalCardActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  detailsButton: {
-    flex: 1,
-    backgroundColor: COLORS.primary,
-    borderRadius: 10,
-    paddingVertical: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detailsButtonText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  deleteButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: '#fef2f2',
-    borderWidth: 1.5,
-    borderColor: '#fecaca',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deleteButtonText: {
-    fontSize: 16,
-  },
+  // Métricas em linha
+  metricsRow:  { flexDirection: 'row' },
+  metricCell:  { flex: 1, paddingVertical: 12, paddingHorizontal: 14, borderRightWidth: 1 },
+  metricLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
+  metricValue: { fontSize: 13, fontWeight: '800', letterSpacing: -0.2 },
 
-  // ── Modal ─────────────────────────────────────────────────────────────
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'flex-end',
-  },
-  modalKeyboardView: {
-    width: '100%',
-  },
-  modalContainer: {
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
-    paddingTop: 12,
-  },
-  modalDragBar: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 19,
-    fontWeight: '700',
-    color: COLORS.navy,
-  },
-  modalCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#f3f4f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalCloseText: {
-    fontSize: 13,
-    color: '#6b7280',
-    fontWeight: '600',
-  },
+  // Ações
+  actionsRow:  { flexDirection: 'row', gap: 10, padding: 14 },
+  detailsBtn:  { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingVertical: 10 },
+  detailsBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '600' },
+  deleteBtn:   { width: 40, height: 40, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // ── Campos do formulário ──────────────────────────────────────────────
-  fieldContainer: {
-    marginBottom: 16,
-  },
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 7,
-  },
-  fieldHint: {
-    fontSize: 11,
-    color: '#9ca3af',
-    marginTop: 5,
-    fontStyle: 'italic',
-  },
-  textInput: {
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 15,
-    color: '#1f2937',
-    backgroundColor: '#f9fafb',
-  },
+  // Modal
+  modalOverlay:{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  modalKbView: { width: '100%' },
+  modalSheet:  { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 28, paddingTop: 14 },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+  modalHead:   { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 },
+  modalTitle:  { fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 3 },
+  modalSubtitle:{ fontSize: 12 },
+  closeBtn:    { width: 30, height: 30, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  modalDivider:{ height: 1, marginBottom: 20 },
 
-  // ── Erro do formulário ────────────────────────────────────────────────
-  formErrorContainer: {
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 14,
-  },
-  formErrorText: {
-    fontSize: 13,
-    color: '#dc2626',
-    lineHeight: 18,
-  },
+  formField:   { marginBottom: 16 },
+  formLabel:   { fontSize: 12, fontWeight: '500', marginBottom: 7, letterSpacing: 0.1 },
+  formInput:   { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 11, fontSize: 14 },
+  formHint:    { fontSize: 11, marginTop: 5, fontStyle: 'italic' },
 
-  // ── Botões de ação do modal ───────────────────────────────────────────
-  saveButton: {
-    backgroundColor: COLORS.navy,
-    borderRadius: 13,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-    shadowColor: COLORS.navy,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  saveButtonDisabled: {
-    backgroundColor: '#93a8c9',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  saveButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  cancelButton: {
-    paddingVertical: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButtonText: {
-    fontSize: 14,
-    color: '#9ca3af',
-    fontWeight: '500',
-  },
+  amountRow:   { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 8, overflow: 'hidden' },
+  amountPrefix:{ paddingHorizontal: 12, paddingVertical: 11, fontSize: 14, fontWeight: '500' },
+  amountInput: { flex: 1, paddingVertical: 11, paddingRight: 12, fontSize: 14 },
+  amountSuffix:{ paddingRight: 12, fontSize: 12 },
+
+  errorBox:    { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },
+  errorText:   { flex: 1, fontSize: 13, color: '#dc2626' },
+
+  saveBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingVertical: 14, marginBottom: 10 },
+  saveBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  cancelBtn:   { paddingVertical: 12, alignItems: 'center' },
+  cancelText:  { fontSize: 13 },
 });

@@ -10,149 +10,165 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 
 import type { ReportsAnosScreenProps } from '../../types/navigation';
 import { useReports, type AvailableYear } from '../../database/useReports';
-
-// ─── Constantes de cor ────────────────────────────────────────────────────────
-
-const NAVY = '#0f2044';
-const PRIMARY = '#2f78f0';
+import { useAppTheme } from '../../contexts/ThemeContext';
 
 // ─── Componente ──────────────────────────────────────────────────────────────
 
-/**
- * Tela 1 do Stack de Relatórios.
- *
- * Consulta o banco SQLite e exibe um card clicável para cada ano
- * em que existam transações registradas, ordenados do mais recente
- * para o mais antigo.
- *
- * Se o banco estiver vazio, exibe uma mensagem amigável orientando
- * o usuário a registrar dados primeiro na tela de Dashboard.
- */
 export default function YearsScreen({ navigation }: ReportsAnosScreenProps): React.JSX.Element {
+  const { accentColor, isDark } = useAppTheme();
   const { availableYears, isLoadingYears, error, refreshYears } = useReports();
 
-  // ── Navegar para a tela de meses ─────────────────────────────────────────
+  const P = {
+    screenBg:      isDark ? '#0d1117' : '#f6f8fa',
+    cardBg:        isDark ? '#161b22' : '#ffffff',
+    cardBorder:    isDark ? '#30363d' : '#d0d7de',
+    textPrimary:   isDark ? '#e6edf3' : '#1f2328',
+    textSecondary: isDark ? '#8b949e' : '#57606a',
+    textMuted:     isDark ? '#6e7681' : '#9198a1',
+    divider:       isDark ? '#21262d' : '#eaecef',
+    badgeBg:       isDark ? '#21262d' : '#f0f6ff',
+    badgeBorder:   isDark ? '#30363d' : '#d0d7de',
+  };
+
   const handleYearPress = useCallback(
-    (year: number): void => {
-      navigation.navigate('ReportsMeses', { year });
-    },
+    (year: number) => { navigation.navigate('ReportsMeses', { year }); },
     [navigation]
   );
 
-  // ── Renderizar card de ano ───────────────────────────────────────────────
-  const renderYearItem = useCallback(
+  const renderItem = useCallback(
     ({ item, index }: { item: AvailableYear; index: number }) => {
+      const isLast = index === availableYears.length - 1;
       return (
         <TouchableOpacity
           onPress={() => handleYearPress(item.year)}
-          activeOpacity={0.75}
-          style={styles.yearCard}
+          activeOpacity={0.7}
+          style={[
+            styles.yearRow,
+            {
+              borderBottomWidth: isLast ? 0 : 1,
+              borderBottomColor: P.divider,
+            },
+          ]}
           accessibilityLabel={`Ver relatório de ${item.year}`}
           accessibilityRole="button"
         >
-          {/* Número grande do ano */}
-          <View style={styles.yearCardLeft}>
-            <Text style={styles.yearNumber}>{item.year}</Text>
-            <Text style={styles.yearTransactionCount}>
+          {/* Ícone */}
+          <View style={[styles.yearIcon, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
+            <Feather name="calendar" size={15} color={accentColor} />
+          </View>
+
+          {/* Dados */}
+          <View style={styles.yearInfo}>
+            <Text style={[styles.yearNumber, { color: P.textPrimary }]}>
+              {item.year}
+            </Text>
+            <Text style={[styles.yearCount, { color: P.textMuted }]}>
               {item.count} {item.count === 1 ? 'movimentação' : 'movimentações'}
             </Text>
           </View>
 
-          {/* Seta de navegação */}
-          <View style={styles.yearCardRight}>
-            <View style={styles.arrowContainer}>
-              <Text style={styles.arrowText}>→</Text>
-            </View>
-          </View>
+          {/* Seta */}
+          <Feather name="chevron-right" size={16} color={P.textMuted} />
         </TouchableOpacity>
       );
     },
-    [handleYearPress]
+    [handleYearPress, availableYears.length, accentColor, P]
   );
 
-  const keyExtractor = useCallback(
-    (item: AvailableYear) => String(item.year),
-    []
-  );
+  const keyExtractor = useCallback((item: AvailableYear) => String(item.year), []);
 
-  // ── Estado de carregamento ────────────────────────────────────────────────
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (isLoadingYears) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={PRIMARY} />
-          <Text style={styles.loadingText}>Consultando histórico…</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // ── Estado de erro ────────────────────────────────────────────────────────
-  if (error !== null) {
-    return (
-      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-        <View style={styles.centerContainer}>
-          <Text style={styles.errorEmoji}>⚠️</Text>
-          <Text style={styles.errorTitle}>Erro ao carregar</Text>
-          <Text style={styles.errorSubtext}>{error}</Text>
-          <TouchableOpacity
-            onPress={refreshYears}
-            style={styles.retryButton}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.retryButtonText}>Tentar novamente</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // ── Estado vazio ──────────────────────────────────────────────────────────
-  if (availableYears.length === 0) {
-    return (
-      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-        <View style={styles.centerContainer}>
-          <Text style={styles.emptyEmoji}>📭</Text>
-          <Text style={styles.emptyTitle}>Nenhum dado encontrado</Text>
-          <Text style={styles.emptySubtext}>
-            Registre suas primeiras movimentações{'\n'}
-            na tela de Dashboard para que os{'\n'}
-            relatórios apareçam aqui.
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={accentColor} />
+          <Text style={[styles.centerText, { color: P.textMuted }]}>
+            Consultando histórico…
           </Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // ── Lista de anos disponíveis ─────────────────────────────────────────────
+  // ── Erro ───────────────────────────────────────────────────────────────────
+  if (error !== null) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
+        <View style={styles.center}>
+          <Feather name="alert-circle" size={36} color="#dc2626" />
+          <Text style={[styles.stateTitle, { color: P.textPrimary }]}>Erro ao carregar</Text>
+          <Text style={[styles.stateSub, { color: P.textMuted }]}>{error}</Text>
+          <TouchableOpacity
+            onPress={refreshYears}
+            style={[styles.retryBtn, { backgroundColor: accentColor }]}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.retryText}>Tentar novamente</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ── Vazio ──────────────────────────────────────────────────────────────────
+  if (availableYears.length === 0) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
+        <View style={styles.center}>
+          <Feather name="inbox" size={40} color={P.textMuted} />
+          <Text style={[styles.stateTitle, { color: P.textSecondary }]}>Sem dados</Text>
+          <Text style={[styles.stateSub, { color: P.textMuted }]}>
+            Registre movimentações no Dashboard para que os relatórios apareçam aqui.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
       <FlatList
         data={availableYears}
         keyExtractor={keyExtractor}
-        renderItem={renderYearItem}
-        contentContainerStyle={styles.listContent}
+        renderItem={renderItem}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
             refreshing={isLoadingYears}
             onRefresh={refreshYears}
-            tintColor={PRIMARY}
-            colors={[PRIMARY]}
+            tintColor={accentColor}
+            colors={[accentColor]}
           />
         }
         ListHeaderComponent={
           <View style={styles.listHeader}>
-            <Text style={styles.listHeaderTitle}>Selecione o ano</Text>
-            <Text style={styles.listHeaderSubtitle}>
-              Toque em um ano para ver os meses disponíveis
+            <Text style={[styles.pageTitle, { color: P.textPrimary }]}>
+              Histórico
+            </Text>
+            <Text style={[styles.pageSub, { color: P.textMuted }]}>
+              Selecione um ano para ver as movimentações
             </Text>
           </View>
         }
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ListFooterComponent={
+          <>
+            <View style={[styles.tableFooterCard, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
+              <View style={styles.tableFooterRow}>
+                <Feather name="info" size={12} color={P.textMuted} style={{ marginRight: 6 }} />
+                <Text style={[styles.tableFootNote, { color: P.textMuted }]}>
+                  {availableYears.length} {availableYears.length === 1 ? 'ano com' : 'anos com'} registros
+                </Text>
+              </View>
+            </View>
+            <View style={{ height: 40 }} />
+          </>
+        }
       />
     </SafeAreaView>
   );
@@ -161,139 +177,51 @@ export default function YearsScreen({ navigation }: ReportsAnosScreenProps): Rea
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-  },
+  safeArea:    { flex: 1 },
+  listContent: { paddingHorizontal: 20 },
 
-  // ── Estados centralizados ────────────────────────────────────────────────
-  centerContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  loadingText: {
-    marginTop: 14,
-    fontSize: 14,
-    color: '#9ca3af',
-    textAlign: 'center',
-  },
-  errorEmoji: {
-    fontSize: 44,
-    marginBottom: 12,
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  errorSubtext: {
-    fontSize: 13,
-    color: '#6b7280',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  retryButton: {
-    backgroundColor: PRIMARY,
-    borderRadius: 12,
-    paddingVertical: 13,
-    paddingHorizontal: 28,
-  },
-  retryButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  emptyEmoji: {
-    fontSize: 52,
-    marginBottom: 14,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#9ca3af',
-    textAlign: 'center',
-    lineHeight: 21,
-  },
+  center:      { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 32 },
+  centerText:  { fontSize: 14, marginTop: 8 },
+  stateTitle:  { fontSize: 17, fontWeight: '600', textAlign: 'center', marginTop: 8 },
+  stateSub:    { fontSize: 13, textAlign: 'center', lineHeight: 20 },
+  retryBtn:    { borderRadius: 8, paddingVertical: 11, paddingHorizontal: 24, marginTop: 8 },
+  retryText:   { color: '#ffffff', fontSize: 14, fontWeight: '600' },
 
-  // ── Lista ────────────────────────────────────────────────────────────────
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 32,
-  },
-  listHeader: {
-    paddingTop: 24,
-    paddingBottom: 16,
-  },
-  listHeaderTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: NAVY,
-    marginBottom: 4,
-  },
-  listHeaderSubtitle: {
-    fontSize: 13,
-    color: '#9ca3af',
-  },
-  separator: {
-    height: 10,
-  },
+  listHeader:  { paddingTop: 24, paddingBottom: 16 },
+  pageTitle:   { fontSize: 22, fontWeight: '700', letterSpacing: -0.4, marginBottom: 4 },
+  pageSub:     { fontSize: 13 },
 
-  // ── Card de ano ──────────────────────────────────────────────────────────
-  yearCard: {
+  yearRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
   },
-  yearCardLeft: {
-    flex: 1,
-  },
-  yearNumber: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: NAVY,
-    letterSpacing: -0.5,
-    marginBottom: 2,
-  },
-  yearTransactionCount: {
-    fontSize: 12,
-    color: '#9ca3af',
-    fontWeight: '500',
-  },
-  yearCardRight: {
-    marginLeft: 16,
-  },
-  arrowContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#eff6ff',
+  yearIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  arrowText: {
-    fontSize: 18,
-    color: PRIMARY,
-    fontWeight: '700',
+  yearInfo:   { flex: 1 },
+  yearNumber: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3, marginBottom: 2 },
+  yearCount:  { fontSize: 12 },
+
+  tableFooterCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 12,
+    overflow: 'hidden',
   },
+  tableFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  tableFootNote: { fontSize: 11 },
 });

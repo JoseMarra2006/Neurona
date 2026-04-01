@@ -8,203 +8,168 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 
 import type { ReportsMesesScreenProps } from '../../types/navigation';
+import { useAppTheme } from '../../contexts/ThemeContext';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const NAVY = '#0f2044';
-const PRIMARY = '#2f78f0';
-
-/** Nomes dos meses em português (índice 0 = Janeiro) */
 const MONTH_NAMES: string[] = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril',
-  'Maio', 'Junho', 'Julho', 'Agosto',
-  'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+  'Janeiro','Fevereiro','Março','Abril',
+  'Maio','Junho','Julho','Agosto',
+  'Setembro','Outubro','Novembro','Dezembro',
 ];
 
-/** Abreviações dos meses para o card (3 letras) */
 const MONTH_ABBR: string[] = [
-  'Jan', 'Fev', 'Mar', 'Abr',
-  'Mai', 'Jun', 'Jul', 'Ago',
-  'Set', 'Out', 'Nov', 'Dez',
+  'JAN','FEV','MAR','ABR',
+  'MAI','JUN','JUL','AGO',
+  'SET','OUT','NOV','DEZ',
 ];
 
-// ─── Lógica de bloqueio de meses futuros ─────────────────────────────────────
-
-/**
- * Verifica se um determinado mês/ano é futuro em relação à data atual do dispositivo.
- *
- * Estratégia: reduz ano + mês a um número ordinal para comparação simples.
- * - ordinal = year * 12 + month (onde month é 1-based)
- * - Se o ordinal do mês a verificar > ordinal do mês atual → futuro
- *
- * @param year  Ano a verificar (ex: 2025)
- * @param month Mês a verificar, 1-based (Janeiro = 1)
- * @returns `true` se o mês ainda não aconteceu
- *
- * @example
- * // Hoje é 15/03/2025
- * isFutureMonth(2025, 3) → false  (mês atual = válido)
- * isFutureMonth(2025, 4) → true   (abril ainda não chegou)
- * isFutureMonth(2026, 1) → true   (próximo ano)
- * isFutureMonth(2024, 12) → false (mês passado = válido)
- */
 function isFutureMonth(year: number, month: number): boolean {
   const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1; // getMonth() é 0-based
-
-  const targetOrdinal = year * 12 + month;
-  const currentOrdinal = currentYear * 12 + currentMonth;
-
-  return targetOrdinal > currentOrdinal;
+  const curr = now.getFullYear() * 12 + now.getMonth() + 1;
+  return (year * 12 + month) > curr;
 }
 
 // ─── Componente ──────────────────────────────────────────────────────────────
 
-/**
- * Tela 2 do Stack de Relatórios.
- *
- * Exibe os 12 meses do ano selecionado em um grid 3×4.
- * Cada card mostra o nome abreviado do mês.
- *
- * Regra de Negócio — Meses Futuros:
- *   Se o usuário tocar em um mês que ainda não chegou (ex: tocar em
- *   Dezembro estando em Março), o app NÃO navega. Em vez disso, exibe
- *   inline na tela a mensagem: "ainda não há dados para serem calculados".
- *   Isso é mais suave do que um alerta e não interrompe a experiência.
- */
 export default function MonthsScreen({ route, navigation }: ReportsMesesScreenProps): React.JSX.Element {
   const { year } = route.params;
+  const { accentColor, isDark } = useAppTheme();
 
-  // Controla qual mês futuro foi tocado (para exibir a mensagem inline)
   const [blockedMonth, setBlockedMonth] = useState<number | null>(null);
 
-  // ── Handler de toque no mês ───────────────────────────────────────────────
+  const P = {
+    screenBg:      isDark ? '#0d1117' : '#f6f8fa',
+    cardBg:        isDark ? '#161b22' : '#ffffff',
+    cardBorder:    isDark ? '#30363d' : '#d0d7de',
+    textPrimary:   isDark ? '#e6edf3' : '#1f2328',
+    textSecondary: isDark ? '#8b949e' : '#57606a',
+    textMuted:     isDark ? '#6e7681' : '#9198a1',
+    futureBg:      isDark ? '#0d1117' : '#f6f8fa',
+    futureBorder:  isDark ? '#21262d' : '#eaecef',
+    futureText:    isDark ? '#30363d' : '#d0d7de',
+    blockedBg:     isDark ? '#1a0e00' : '#fff7ed',
+    blockedBorder: isDark ? '#7c3508' : '#fed7aa',
+    blockedText:   isDark ? '#fb923c' : '#92400e',
+    divider:       isDark ? '#21262d' : '#eaecef',
+  };
+
+  const now = new Date();
+  const currentYear  = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
   const handleMonthPress = useCallback(
     (month: number): void => {
       if (isFutureMonth(year, month)) {
-        // Exibe a mensagem inline e limpa após 3 segundos
         setBlockedMonth(month);
         setTimeout(() => setBlockedMonth(null), 3000);
         return;
       }
-
-      // Mês válido (passado ou atual): navega para a lista de transações
       setBlockedMonth(null);
       navigation.navigate('ReportsTransacoes', { year, month });
     },
     [year, navigation]
   );
 
-  // ── Data atual para marcar o mês corrente visualmente ────────────────────
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-
   return (
-    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Cabeçalho da tela ──────────────────────────────────────── */}
-        <View style={styles.screenHeader}>
-          <Text style={styles.yearTitle}>{year}</Text>
-          <Text style={styles.yearSubtitle}>Selecione um mês para ver as movimentações</Text>
+        {/* ── Cabeçalho ─────────────────────────────────────────── */}
+        <View style={styles.pageHeader}>
+          <Text style={[styles.pageTitle, { color: P.textPrimary }]}>{year}</Text>
+          <Text style={[styles.pageSub, { color: P.textMuted }]}>
+            Selecione um mês para ver as movimentações
+          </Text>
         </View>
 
-        {/* ── Mensagem de bloqueio (mês futuro) ─────────────────────── */}
+        {/* ── Banner: mês futuro ────────────────────────────────── */}
         {blockedMonth !== null && (
-          <View style={styles.blockedMessageContainer}>
-            <Text style={styles.blockedMessageEmoji}>🔒</Text>
-            <Text style={styles.blockedMessageText}>
-              {MONTH_NAMES[blockedMonth - 1]} {year}:{' '}
-              <Text style={styles.blockedMessageHighlight}>
-                ainda não há dados para serem calculados
-              </Text>
+          <View style={[styles.blockedBanner, { backgroundColor: P.blockedBg, borderColor: P.blockedBorder }]}>
+            <Feather name="lock" size={13} color={P.blockedText} style={{ marginRight: 8, marginTop: 1 }} />
+            <Text style={[styles.blockedText, { color: P.blockedText }]}>
+              <Text style={{ fontWeight: '700' }}>{MONTH_NAMES[blockedMonth - 1]} {year}: </Text>
+              ainda não há dados disponíveis para este mês.
             </Text>
           </View>
         )}
 
-        {/* ── Grid de meses (3 colunas × 4 linhas) ──────────────────── */}
+        {/* ── Grid de meses ─────────────────────────────────────── */}
         <View style={styles.grid}>
-          {MONTH_NAMES.map((monthName, index) => {
-            const month = index + 1; // Converte de 0-based para 1-based
-            const isFuture = isFutureMonth(year, month);
-            const isCurrent = year === currentYear && month === currentMonth;
-            const isBlocked = blockedMonth === month;
+          {MONTH_NAMES.map((_, i) => {
+            const month   = i + 1;
+            const future  = isFutureMonth(year, month);
+            const current = year === currentYear && month === currentMonth;
+            const blocked = blockedMonth === month;
+
+            // Cores calculadas por estado
+            const bgColor     = future  ? P.futureBg    : blocked ? P.blockedBg : P.cardBg;
+            const borderColor = current ? accentColor   : blocked ? P.blockedBorder : future ? P.futureBorder : P.cardBorder;
+            const borderWidth = current ? 1.5 : 1;
+            const numColor    = future  ? P.futureText  : current ? accentColor : P.textPrimary;
+            const abbrColor   = future  ? P.futureText  : current ? accentColor : P.textMuted;
+            const opacity     = future  ? 0.5 : 1;
 
             return (
               <TouchableOpacity
                 key={month}
                 onPress={() => handleMonthPress(month)}
-                activeOpacity={isFuture ? 0.5 : 0.75}
+                activeOpacity={future ? 0.4 : 0.75}
                 style={[
                   styles.monthCard,
-                  isCurrent && styles.monthCardCurrent,
-                  isFuture && styles.monthCardFuture,
-                  isBlocked && styles.monthCardBlocked,
+                  { backgroundColor: bgColor, borderColor, borderWidth, opacity },
                 ]}
                 accessibilityLabel={
-                  isFuture
-                    ? `${monthName} — mês futuro, sem dados disponíveis`
-                    : `Ver movimentações de ${monthName} de ${year}`
+                  future
+                    ? `${MONTH_NAMES[i]} — sem dados`
+                    : `${MONTH_NAMES[i]} de ${year}`
                 }
                 accessibilityRole="button"
               >
-                {/* Indicador "Atual" para o mês corrente */}
-                {isCurrent && (
-                  <View style={styles.currentBadge}>
-                    <Text style={styles.currentBadgeText}>Atual</Text>
+                {/* Badge "ATUAL" */}
+                {current && (
+                  <View style={[styles.currentBadge, { backgroundColor: accentColor }]}>
+                    <Text style={styles.currentBadgeText}>ATUAL</Text>
                   </View>
                 )}
 
-                {/* Número do mês */}
-                <Text
-                  style={[
-                    styles.monthNumber,
-                    isFuture && styles.monthNumberFuture,
-                    isCurrent && styles.monthNumberCurrent,
-                  ]}
-                >
+                {/* Número */}
+                <Text style={[styles.monthNum, { color: numColor }]}>
                   {String(month).padStart(2, '0')}
                 </Text>
 
-                {/* Abreviação do mês */}
-                <Text
-                  style={[
-                    styles.monthAbbr,
-                    isFuture && styles.monthAbbrFuture,
-                    isCurrent && styles.monthAbbrCurrent,
-                  ]}
-                >
-                  {MONTH_ABBR[index]}
+                {/* Abreviação */}
+                <Text style={[styles.monthAbbr, { color: abbrColor }]}>
+                  {MONTH_ABBR[i]}
                 </Text>
 
-                {/* Ícone de cadeado para meses futuros */}
-                {isFuture && (
-                  <Text style={styles.lockIcon}>🔒</Text>
+                {/* Ícone de bloqueio para futuros */}
+                {future && (
+                  <Feather name="lock" size={9} color={P.futureText} style={{ marginTop: 3 }} />
                 )}
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* ── Legenda ───────────────────────────────────────────────── */}
+        {/* ── Legenda ───────────────────────────────────────────── */}
         <View style={styles.legend}>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: PRIMARY }]} />
-            <Text style={styles.legendText}>Mês atual</Text>
+            <View style={[styles.legendDot, { backgroundColor: accentColor }]} />
+            <Text style={[styles.legendText, { color: P.textMuted }]}>Mês atual</Text>
           </View>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#e5e7eb' }]} />
-            <Text style={styles.legendText}>Mês futuro (sem dados)</Text>
+            <Feather name="lock" size={10} color={P.textMuted} style={{ marginRight: 5 }} />
+            <Text style={[styles.legendText, { color: P.textMuted }]}>Sem dados (futuro)</Text>
           </View>
         </View>
 
-        <View style={styles.bottomSpacing} />
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -213,174 +178,57 @@ export default function MonthsScreen({ route, navigation }: ReportsMesesScreenPr
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-  },
+  safeArea:      { flex: 1 },
+  scrollContent: { paddingHorizontal: 20 },
 
-  // ── Cabeçalho ────────────────────────────────────────────────────────────
-  screenHeader: {
-    paddingTop: 24,
-    paddingBottom: 16,
-  },
-  yearTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: NAVY,
-    letterSpacing: -0.5,
-    marginBottom: 4,
-  },
-  yearSubtitle: {
-    fontSize: 13,
-    color: '#9ca3af',
-  },
+  pageHeader:  { paddingTop: 24, paddingBottom: 18 },
+  pageTitle:   { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4 },
+  pageSub:     { fontSize: 13 },
 
-  // ── Mensagem de bloqueio ──────────────────────────────────────────────────
-  blockedMessageContainer: {
+  blockedBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#fff7ed',
-    borderWidth: 1.5,
-    borderColor: '#fed7aa',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     marginBottom: 16,
-    gap: 8,
   },
-  blockedMessageEmoji: {
-    fontSize: 16,
-    marginTop: 1,
-  },
-  blockedMessageText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#92400e',
-    lineHeight: 19,
-  },
-  blockedMessageHighlight: {
-    fontWeight: '700',
-    color: '#c2410c',
-  },
+  blockedText: { flex: 1, fontSize: 13, lineHeight: 19 },
 
-  // ── Grid de meses ─────────────────────────────────────────────────────────
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
     marginBottom: 20,
   },
-
-  // ── Card de mês ──────────────────────────────────────────────────────────
   monthCard: {
     width: '31%',
     aspectRatio: 1,
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
     elevation: 1,
   },
-  monthCardCurrent: {
-    backgroundColor: '#eff6ff',
-    borderColor: PRIMARY,
-    borderWidth: 2,
-  },
-  monthCardFuture: {
-    backgroundColor: '#f9fafb',
-    borderColor: '#e5e7eb',
-    opacity: 0.6,
-  },
-  monthCardBlocked: {
-    borderColor: '#fed7aa',
-    backgroundColor: '#fff7ed',
-  },
-
-  // Badge "Atual"
   currentBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: PRIMARY,
-    borderRadius: 6,
-    paddingHorizontal: 5,
+    top: 5,
+    right: 5,
+    borderRadius: 4,
+    paddingHorizontal: 4,
     paddingVertical: 2,
   },
-  currentBadgeText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#ffffff',
-    letterSpacing: 0.3,
-  },
+  currentBadgeText: { fontSize: 7, fontWeight: '800', color: '#ffffff', letterSpacing: 0.4 },
+  monthNum:  { fontSize: 21, fontWeight: '800', letterSpacing: -0.5, marginBottom: 2 },
+  monthAbbr: { fontSize: 10, fontWeight: '600', letterSpacing: 0.8 },
 
-  // Número do mês
-  monthNumber: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: NAVY,
-    letterSpacing: -0.5,
-    marginBottom: 2,
-  },
-  monthNumberFuture: {
-    color: '#d1d5db',
-  },
-  monthNumberCurrent: {
-    color: PRIMARY,
-  },
-
-  // Abreviação do mês
-  monthAbbr: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#9ca3af',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  monthAbbrFuture: {
-    color: '#d1d5db',
-  },
-  monthAbbrCurrent: {
-    color: PRIMARY,
-  },
-
-  // Ícone de cadeado
-  lockIcon: {
-    fontSize: 10,
-    marginTop: 3,
-  },
-
-  // ── Legenda ───────────────────────────────────────────────────────────────
-  legend: {
-    flexDirection: 'row',
-    gap: 20,
-    paddingTop: 4,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  legendText: {
-    fontSize: 12,
-    color: '#9ca3af',
-  },
-
-  bottomSpacing: {
-    height: 40,
-  },
+  legend:     { flexDirection: 'row', gap: 20 },
+  legendItem: { flexDirection: 'row', alignItems: 'center' },
+  legendDot:  { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  legendText: { fontSize: 12 },
 });
