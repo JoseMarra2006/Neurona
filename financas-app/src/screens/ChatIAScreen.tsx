@@ -44,7 +44,7 @@ const INITIAL_MESSAGES: DisplayMessage[] = [
     id:      'finia-welcome-0',
     role:    'assistant',
     content:
-      'Olá. Sou a FinIA, consultora financeira integrada ao FinançasPRO.\n\n' +
+      'Olá. Sou a FinIA, consultora financeira integrada ao Neurona.\n\n' +
       'Posso ajudá-lo com controle de gastos, planejamento de metas, ' +
       'investimentos e educação financeira.\n\n' +
       'Como posso ajudá-lo?',
@@ -420,7 +420,6 @@ const styles = StyleSheet.create({
     paddingVertical:   10,
   },
   bubbleUser: {
-    // cantos iguais — sem "rabinho" exagerado
     borderBottomRightRadius: 4,
   },
   bubbleAI: {

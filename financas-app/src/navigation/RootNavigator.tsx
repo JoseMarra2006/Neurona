@@ -43,7 +43,7 @@ export default function RootNavigator(): React.JSX.Element {
         </View>
 
         {/* Nome do app */}
-        <Text style={styles.appName}>FinançasPRO</Text>
+        <Text style={styles.appName}>Neurona</Text>
 
         {/* Indicador de carregamento */}
         <ActivityIndicator

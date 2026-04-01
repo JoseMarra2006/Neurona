@@ -15,65 +15,58 @@ import ConfiguracoesScreen from '../screens/ConfiguracoesScreen';
 
 const Drawer = createDrawerNavigator<DrawerParamList>();
 
-// ─── Constantes de identidade de marca ───────────────────────────────────────
-//
-// O header navy (#0f2044) é fixo e não varia com o accentColor nem com o tema.
-// Ele representa a identidade visual do FinançasPRO em toda a navegação.
-//
-// Decisão de design:
-//  - accentColor NÃO é aplicado ao header — headers com cores dinâmicas
-//    fragilizam a percepção de identidade do produto.
-//  - accentColor é aplicado nos elementos internos das telas e no DrawerContent
-//    (item ativo, logo), onde o efeito é sutil e contextual.
-
-const HEADER_BG   = '#0f2044';   // navy — cor de marca fixa
-const HEADER_TINT = '#ffffff';   // branco — sempre legível sobre navy
-
 // ─── Componente ──────────────────────────────────────────────────────────────
 
 /**
  * AppNavigator — DrawerNavigator principal da aplicação.
  *
- * Responsabilidades:
- *  1. Montar as 5 rotas do Drawer.
- *  2. Aplicar opções de header globais (navy fixo, HamburgerButton via Feather).
- *  3. Adaptar backgroundColor do painel lateral ao tema via isDark.
- *     O DrawerContent interno lida com os itens dinamicamente.
+ * Arquitetura de headers (duas categorias):
  *
- * drawerBg precisa ser definido aqui — não apenas no DrawerContent — para
- * cobrir as áreas de safe area visíveis ao deslizar (iOS notch / rounded corners).
+ *  A) Dashboard / Chat IA / Configurações:
+ *     Header do Drawer VISÍVEL, mas "invisível" visualmente —
+ *     mesma cor de fundo do tema ativo, sem bordas nem sombra.
+ *     Hospeda o HamburgerButton que abre o painel lateral.
+ *
+ *  B) Relatórios / Metas:
+ *     Header do Drawer OCULTO (headerShown: false).
+ *     ReportsStack e GoalsStack fornecem seus próprios headers temáticos
+ *     com HamburgerButton embutido nas telas raiz de cada stack.
+ *     Isso evita a duplicação de headers (Drawer + Stack sobrepostos).
+ *
+ * Regra crítica: NÃO definir headerLeft em screenOptions globais.
+ * O override per-tela funciona apenas quando o global não existe.
  */
 export default function AppNavigator(): React.JSX.Element {
   const { isDark } = useAppTheme();
 
-  // dark : #0d1117 (GitHub-dark, fundo profundo)
-  // light: #ffffff (branco nítido)
-  const drawerBg = isDark ? '#0d1117' : '#ffffff';
+  // Mesma cor de fundo usada nas telas — o header "desaparece" na superfície
+  const themeBg   = isDark ? '#0d1117' : '#ffffff';
+  // Cor de texto/ícone legível sobre o fundo do tema
+  const themeTint = isDark ? '#ffffff' : '#1f2328';
+  // Painel lateral acompanha o tema
+  const drawerBg  = isDark ? '#0d1117' : '#ffffff';
 
   return (
     <Drawer.Navigator
       initialRouteName="Dashboard"
       drawerContent={(props) => <DrawerContent {...props} />}
       screenOptions={{
-        // ── Header global ──────────────────────────────────────────
+        // ── Header "invisível" (padrão para telas simples) ────────
+        // Cor idêntica ao fundo da tela: zero sombra, zero borda.
+        // Permanece ativo para: (1) safe area do topo, (2) HamburgerButton.
+        // Sem headerLeft aqui — cada tela injeta o seu próprio.
         headerStyle: {
-          backgroundColor: HEADER_BG,
+          backgroundColor: themeBg,
           elevation: 0,
           shadowOpacity: 0,
           borderBottomWidth: 0,
         },
-        headerTintColor: HEADER_TINT,
-        headerTitleStyle: {
-          fontWeight: '600',
-          fontSize: 16,
-          letterSpacing: -0.2,
-        },
-        headerTitleAlign: 'center',
+        headerTintColor: themeTint,
 
-        // Suprime o botão padrão — usamos HamburgerButton customizado
-        headerLeft: () => null,
+        // Título vazio — cada tela gerencia sua própria tipografia interna
+        headerTitle: '',
 
-        // ── Drawer ────────────────────────────────────────────────
+        // ── Painel lateral ─────────────────────────────────────────
         drawerStyle: {
           backgroundColor: drawerBg,
           width: 272,
@@ -83,46 +76,46 @@ export default function AppNavigator(): React.JSX.Element {
         drawerLabel: () => null,
       }}
     >
+      {/* ── A) Telas com header do Drawer (invisível + HamburgerButton) ── */}
+
       <Drawer.Screen
         name="Dashboard"
         component={DashboardScreen}
         options={({ navigation }) => ({
-          title: 'Dashboard',
           headerLeft: () => (
-            <HamburgerButton onPress={() => navigation.openDrawer()} color={HEADER_TINT} />
+            <HamburgerButton
+              onPress={() => navigation.openDrawer()}
+              color={themeTint}
+            />
           ),
         })}
       />
 
+      {/* ── B) Telas cujo Stack fornece o header — Drawer ocultado ─────── */}
+
       <Drawer.Screen
         name="Relatórios"
         component={RelatoriosScreen}
-        options={({ navigation }) => ({
-          title: 'Relatórios',
-          headerLeft: () => (
-            <HamburgerButton onPress={() => navigation.openDrawer()} color={HEADER_TINT} />
-          ),
-        })}
+        options={{ headerShown: false }}
       />
 
       <Drawer.Screen
         name="Metas"
         component={MetasScreen}
-        options={({ navigation }) => ({
-          title: 'Metas',
-          headerLeft: () => (
-            <HamburgerButton onPress={() => navigation.openDrawer()} color={HEADER_TINT} />
-          ),
-        })}
+        options={{ headerShown: false }}
       />
+
+      {/* ── A) Continuação ──────────────────────────────────────────────── */}
 
       <Drawer.Screen
         name="Chat IA"
         component={ChatIAScreen}
         options={({ navigation }) => ({
-          title: 'Chat IA',
           headerLeft: () => (
-            <HamburgerButton onPress={() => navigation.openDrawer()} color={HEADER_TINT} />
+            <HamburgerButton
+              onPress={() => navigation.openDrawer()}
+              color={themeTint}
+            />
           ),
         })}
       />
@@ -131,9 +124,11 @@ export default function AppNavigator(): React.JSX.Element {
         name="Configurações"
         component={ConfiguracoesScreen}
         options={({ navigation }) => ({
-          title: 'Configurações',
           headerLeft: () => (
-            <HamburgerButton onPress={() => navigation.openDrawer()} color={HEADER_TINT} />
+            <HamburgerButton
+              onPress={() => navigation.openDrawer()}
+              color={themeTint}
+            />
           ),
         })}
       />

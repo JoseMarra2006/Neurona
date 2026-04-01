@@ -382,7 +382,6 @@ export default function ConfiguracoesScreen(
                       {
                         backgroundColor: sel ? P.cardBg : 'transparent',
                         borderColor:     sel ? P.cardBorder : 'transparent',
-                        // Arredondamento dos cantos externos do segmented control
                         borderTopLeftRadius:     isFirst ? 6 : 0,
                         borderBottomLeftRadius:  isFirst ? 6 : 0,
                         borderTopRightRadius:    isLast  ? 6 : 0,
@@ -561,7 +560,7 @@ export default function ConfiguracoesScreen(
 
         {/* ── Rodapé ────────────────────────────────────────── */}
         <Text style={[styles.footer, { color: P.textMuted }]}>
-          FinançasPRO v1.0.0 · Dados armazenados localmente
+          Neurona v1.0.0 · Dados armazenados localmente
         </Text>
 
         <View style={{ height: 40 }} />

@@ -62,7 +62,7 @@ export default function DrawerContent(
         >
           <Feather name="dollar-sign" size={24} color={accentColor} />
         </View>
-        <Text style={styles.appName}>FinançasPRO</Text>
+        <Text style={styles.appName}>Neurona</Text>
         <Text style={[styles.appTagline, { color: P.headerTagline }]}>
           Controle seu futuro
         </Text>
@@ -133,7 +133,7 @@ export default function DrawerContent(
         ]}
       >
         <Text style={[styles.footerVersion, { color: P.footerText }]}>
-          FinançasPRO v1.0.0
+          Neurona v1.0.0
         </Text>
       </SafeAreaView>
     </DrawerContentScrollView>

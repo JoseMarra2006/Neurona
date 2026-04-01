@@ -111,7 +111,7 @@ export default function AuthScreen(): React.JSX.Element {
               <Feather name="dollar-sign" size={28} color={ACCENT} />
             </View>
 
-            <Text style={styles.brandName}>FinançasPRO</Text>
+            <Text style={styles.brandName}>Neurona</Text>
             <Text style={styles.brandSub}>Controle financeiro inteligente</Text>
           </View>
 
