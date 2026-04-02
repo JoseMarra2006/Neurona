@@ -119,7 +119,20 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
 
   const { profile } = useAuth();
   const settingsUserName = useSettingsStore((s) => s.userName);
-  const displayName = profile?.name ?? settingsUserName ?? '';
+
+  // ── Prioridade do nome na saudação ────────────────────────────────────────
+  //
+  // O campo "Como você quer ser chamado?" em Configurações tem prioridade
+  // máxima: se o usuário o preencheu, esse é o nome exibido.
+  // Caso esteja vazio, cai para o nome do perfil Supabase (definido no cadastro).
+  // Se ambos estiverem vazios, exibe apenas "Olá".
+  //
+  // Antes: profile?.name ?? settingsUserName  → Supabase sempre vencia
+  // Agora: settingsUserName || profile?.name  → Configurações sempre vence
+  const displayName = settingsUserName.trim().length > 0
+    ? settingsUserName.trim()
+    : (profile?.name ?? '');
+
   const greeting = displayName.length > 0
     ? `Olá, ${displayName.split(' ')[0]}`
     : 'Olá';
@@ -205,7 +218,6 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     ({ item, index }: { item: (typeof monthlyTransactions)[0]; index: number }) => {
       const isLast = index === monthlyTransactions.length - 1;
 
-      // Seleciona as cores semânticas corretas por tipo
       let dotColor = SEM.income.text;
       let amountColor = SEM.income.text;
       let signal = '+';
@@ -238,10 +250,7 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
             },
           ]}
         >
-          {/* Ponto de cor semântica */}
           <View style={[styles.txDot, { backgroundColor: dotColor }]} />
-
-          {/* Título + data */}
           <View style={styles.txMid}>
             <Text style={[styles.txTitle, { color: P.textPrimary }]} numberOfLines={1}>
               {item.title}
@@ -250,8 +259,6 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
               {formatDate(item.date)}
             </Text>
           </View>
-
-          {/* Valor + badge */}
           <View style={styles.txRight}>
             <Text style={[styles.txAmount, { color: amountColor }]}>
               {signal} {formatCurrency(item.amount)}
@@ -289,8 +296,6 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
               {getCurrentMonthName()} {new Date().getFullYear()}
             </Text>
           </View>
-
-          {/* Badge de ícone com accentColor */}
           <View style={[styles.greetBadge, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
             <Feather name="dollar-sign" size={20} color={accentColor} />
           </View>
@@ -430,11 +435,11 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
         onRequestClose={closeModal}
         statusBarTranslucent
       >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKbView}
-          >
+        <KeyboardAvoidingView
+          behavior="padding"
+          style={styles.modalKbView}
+        >
+          <View style={styles.modalOverlay}>
             <View style={[styles.modalSheet, { backgroundColor: P.modalBg }]}>
 
               {/* Handle */}
@@ -463,7 +468,7 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
               {/* Divisor */}
               <View style={[styles.modalDivider, { backgroundColor: P.divider }]} />
 
-              {/* ── Tipo (primeiro campo, mais importante) ──────────── */}
+              {/* ── Tipo ──────────────────────────────────────────────── */}
               <View style={styles.formField}>
                 <Text style={[styles.formLabel, { color: P.textSecondary }]}>
                   Tipo de movimentação
@@ -472,7 +477,6 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                   {TYPE_OPTIONS.map((opt) => {
                     const sel = form.type === opt.type;
 
-                    // Cor semântica por tipo
                     let semColor = SEM.expense.text;
                     let semBg    = SEM.expense.bg;
                     let semBdr   = SEM.expense.border;
@@ -495,8 +499,8 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                         style={[
                           styles.typeBtn,
                           {
-                            backgroundColor: sel ? semBg    : P.inputBg,
-                            borderColor:     sel ? semBdr   : P.inputBorder,
+                            backgroundColor: sel ? semBg  : P.inputBg,
+                            borderColor:     sel ? semBdr : P.inputBorder,
                             borderWidth:     sel ? 1.5 : 1,
                           },
                         ]}
@@ -610,16 +614,14 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
               </TouchableOpacity>
 
             </View>
-          </KeyboardAvoidingView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-// Apenas propriedades estáticas aqui.
-// Cores dinâmicas (isDark, accentColor, semânticas) são aplicadas inline no JSX.
 
 const styles = StyleSheet.create({
   safeArea:     { flex: 1 },
@@ -755,12 +757,14 @@ const styles = StyleSheet.create({
   seeMoreText: { fontSize: 13, fontWeight: '500' },
 
   // ── Modal ────────────────────────────────────────────────────────────────
+  modalKbView: {
+    flex: 1,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
   },
-  modalKbView: { width: '100%' },
   modalSheet:  {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,

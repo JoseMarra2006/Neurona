@@ -87,7 +87,7 @@ const CHAT_TEMPERATURE = 0.6;
  *   2. Regra de Desvio Simples — perguntas triviais fora do escopo
  *   3. Regra de Desvio Complexo — pedidos de geração de conteúdo não-financeiro
  */
-const CHAT_SYSTEM_PROMPT = `Você é FinIA, uma consultora financeira pessoal especializada, integrada ao aplicativo FinançasPRO. Seu propósito exclusivo é auxiliar os usuários em tópicos de finanças pessoais, incluindo: educação financeira, controle de gastos, orçamento doméstico, planejamento de metas financeiras, investimentos, dívidas, crédito, aposentadoria, previdência privada, impostos, consumo consciente e qualquer assunto diretamente relacionado ao universo financeiro e econômico.
+const CHAT_SYSTEM_PROMPT = `Você é FinIA, uma consultora financeira pessoal especializada, integrada ao aplicativo Neurona. Seu propósito exclusivo é auxiliar os usuários em tópicos de finanças pessoais, incluindo: educação financeira, controle de gastos, orçamento doméstico, planejamento de metas financeiras, investimentos, dívidas, crédito, aposentadoria, previdência privada, impostos, consumo consciente e qualquer assunto diretamente relacionado ao universo financeiro e econômico.
 
 ═══ REGRAS DE COMPORTAMENTO (INVIOLÁVEIS) ═══
 
@@ -144,9 +144,17 @@ function formatDeadline(isoDate: string): string {
 /**
  * Constrói o system prompt com o contexto financeiro completo do usuário
  * para análise de viabilidade de uma meta específica.
+ *
+ * Fórmula de sobras:
+ *   surplus = monthlyIncome - averageMonthlyExpenses - averageMonthlySavings
+ *
+ * Economias são subtraídas das sobras porque representam dinheiro já
+ * comprometido com metas — o mesmo critério usado no card "SOBRAS" do
+ * Dashboard. Isso garante consistência entre a tela e a análise da IA.
  */
 function buildAnalysisSystemPrompt(ctx: FinancialContext): string {
-  const surplus = ctx.monthlyIncome - ctx.averageMonthlyExpenses;
+  // Sobras = Entradas - Gastos - Economias (dinheiro realmente livre)
+  const surplus = ctx.monthlyIncome - ctx.averageMonthlyExpenses - ctx.averageMonthlySavings;
   const remaining = ctx.targetAmount - ctx.currentAmount;
   const requiredMonthly = ctx.monthsRemaining > 0
     ? remaining / ctx.monthsRemaining
@@ -158,8 +166,8 @@ Analise a viabilidade da meta financeira do usuário com base nos dados reais ab
 ═══ PERFIL FINANCEIRO DO USUÁRIO ═══
 • Renda mensal: ${formatBRL(ctx.monthlyIncome)}
 • Média de gastos mensais: ${formatBRL(ctx.averageMonthlyExpenses)}
-• Sobra mensal estimada: ${formatBRL(surplus)}
-• Média de economia mensal: ${formatBRL(ctx.averageMonthlySavings)}
+• Média de economias mensais: ${formatBRL(ctx.averageMonthlySavings)}
+• Sobra mensal livre (renda − gastos − economias): ${formatBRL(surplus)}
 
 ═══ META FINANCEIRA ═══
 • Nome da meta: ${ctx.goalName}
@@ -171,7 +179,7 @@ Analise a viabilidade da meta financeira do usuário com base nos dados reais ab
 
 ═══ SUAS TAREFAS ═══
 
-1. **Análise de Viabilidade**: Avalie matematicamente se o prazo é viável considerando a sobra mensal e a média de economia atual. Seja claro e direto: diga "SIM, é viável" ou "NÃO, o prazo é apertado/inviável".
+1. **Análise de Viabilidade**: Avalie matematicamente se o prazo é viável considerando a sobra mensal livre e a média de economia atual. Seja claro e direto: diga "SIM, é viável" ou "NÃO, o prazo é apertado/inviável".
 
 2. **Previsão Realista**: Se o prazo NÃO for viável, calcule em quantos meses o usuário realmente conseguiria atingir a meta mantendo o ritmo atual de economia. Apresente o cálculo de forma simples.
 

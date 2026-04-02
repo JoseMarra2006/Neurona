@@ -22,8 +22,16 @@ export interface MonthlySummary {
   /** Soma de todas as economias do mês */
   totalSavings: number;
   /**
-   * Sobras = Entradas - Gastos.
-   * Economias não são subtraídas: foram separadas intencionalmente pelo usuário.
+   * Sobras = Entradas - Gastos - Economias.
+   *
+   * Economias SÃO subtraídas das sobras porque representam dinheiro
+   * comprometido intencionalmente pelo usuário com uma meta.
+   * Não subtraí-las inflaria artificialmente o valor "livre" disponível,
+   * dando a impressão de que o usuário tem mais dinheiro do que realmente tem.
+   *
+   * Exemplo: R$ 5.000 de entrada, R$ 2.000 de gastos, R$ 1.000 de economia
+   *   Sobras = 5.000 - 2.000 - 1.000 = R$ 2.000 (correto — dinheiro livre)
+   *   Antes : 5.000 - 2.000           = R$ 3.000 (errado — incluía a economia)
    */
   surplus: number;
 }
@@ -136,7 +144,10 @@ export function useTransactions(): UseTransactionsReturn {
         totalIncome,
         totalExpenses,
         totalSavings,
-        surplus: totalIncome - totalExpenses,
+        // Sobras = Entradas - Gastos - Economias
+        // Economias são dinheiro comprometido com metas: não devem aparecer
+        // como dinheiro "livre" nas sobras.
+        surplus: totalIncome - totalExpenses - totalSavings,
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Erro ao carregar dados mensais';
