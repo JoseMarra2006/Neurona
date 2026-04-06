@@ -24,34 +24,13 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useAppTheme } from '../contexts/ThemeContext';
 
 // ─── Cores semânticas financeiras (IMUTÁVEIS) ─────────────────────────────────
-//
-// Estas cores representam conceitos de negócio e NUNCA devem ser alteradas
-// pelo accentColor do usuário nem pelo tema claro/escuro.
-// Os backgrounds e bordas possuem variantes dark para manter legibilidade,
-// mas as cores de texto (verde/vermelho/roxo/azul) são sempre as mesmas.
 
 function getSemantic(isDark: boolean) {
   return {
-    income: {
-      text:   '#16a34a',
-      bg:     isDark ? '#071a0f' : '#f0fdf4',
-      border: isDark ? '#14532d' : '#bbf7d0',
-    },
-    expense: {
-      text:   '#dc2626',
-      bg:     isDark ? '#1c0707' : '#fef2f2',
-      border: isDark ? '#7f1d1d' : '#fecaca',
-    },
-    surplus: {
-      text:   '#7c3aed',
-      bg:     isDark ? '#130a24' : '#faf5ff',
-      border: isDark ? '#4c1d95' : '#e9d5ff',
-    },
-    savings: {
-      text:   '#2563eb',
-      bg:     isDark ? '#060e1f' : '#eff6ff',
-      border: isDark ? '#1e3a5f' : '#bfdbfe',
-    },
+    income:  { text: '#16a34a', bg: isDark ? '#071a0f' : '#f0fdf4', border: isDark ? '#14532d' : '#bbf7d0' },
+    expense: { text: '#dc2626', bg: isDark ? '#1c0707' : '#fef2f2', border: isDark ? '#7f1d1d' : '#fecaca' },
+    surplus: { text: '#7c3aed', bg: isDark ? '#130a24' : '#faf5ff', border: isDark ? '#4c1d95' : '#e9d5ff' },
+    savings: { text: '#2563eb', bg: isDark ? '#060e1f' : '#eff6ff', border: isDark ? '#1e3a5f' : '#bfdbfe' },
   };
 }
 
@@ -78,24 +57,49 @@ function getCurrentMonthName(): string {
   return months[new Date().getMonth()] ?? '';
 }
 
+// ─── Máscara monetária estilo banco ───────────────────────────────────────────
+//
+// Dígitos são adicionados da direita para a esquerda (igual app de banco).
+// "1" → "R$ 0,01" | "100" → "R$ 1,00" | "12345" → "R$ 123,45"
+//
+// applyMoneyMask: recebe qualquer string, extrai dígitos e formata.
+// parseMoneyMask: extrai o número de uma string formatada.
+
+function applyMoneyMask(input: string): string {
+  const digits = input.replace(/\D/g, '');
+  if (!digits) return '';
+  const cents = parseInt(digits, 10);
+  if (cents === 0) return '';
+  const str = (cents / 100).toFixed(2);
+  const [reais = '0', centStr = '00'] = str.split('.');
+  const reaisFormatted = reais.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `R$ ${reaisFormatted},${centStr}`;
+}
+
+function parseMoneyMask(value: string): number {
+  const clean = value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(clean);
+  return isNaN(n) ? 0 : n;
+}
+
 // ─── Tipo do formulário ───────────────────────────────────────────────────────
 
 interface TransactionForm {
-  title: string;
+  title:  string;
   amount: string;
-  type: TransactionType;
+  type:   TransactionType;
 }
 
 const INITIAL_FORM: TransactionForm = { title: '', amount: '', type: 'gasto' };
 
-// ─── Configuração por tipo (ícone + labels) ───────────────────────────────────
+// ─── Configuração por tipo ────────────────────────────────────────────────────
 
 type FeatherIconName = keyof typeof Feather.glyphMap;
 
 interface TypeOption {
-  type: TransactionType;
-  label: string;
-  icon: FeatherIconName;
+  type:   TransactionType;
+  label:  string;
+  icon:   FeatherIconName;
   signal: string;
 }
 
@@ -120,15 +124,6 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
   const { profile } = useAuth();
   const settingsUserName = useSettingsStore((s) => s.userName);
 
-  // ── Prioridade do nome na saudação ────────────────────────────────────────
-  //
-  // O campo "Como você quer ser chamado?" em Configurações tem prioridade
-  // máxima: se o usuário o preencheu, esse é o nome exibido.
-  // Caso esteja vazio, cai para o nome do perfil Supabase (definido no cadastro).
-  // Se ambos estiverem vazios, exibe apenas "Olá".
-  //
-  // Antes: profile?.name ?? settingsUserName  → Supabase sempre vencia
-  // Agora: settingsUserName || profile?.name  → Configurações sempre vence
   const displayName = settingsUserName.trim().length > 0
     ? settingsUserName.trim()
     : (profile?.name ?? '');
@@ -138,26 +133,26 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     : 'Olá';
 
   const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
-  const [form, setForm] = useState<TransactionForm>(INITIAL_FORM);
+  const [form, setForm]       = useState<TransactionForm>(INITIAL_FORM);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   // ── Paleta dinâmica ───────────────────────────────────────────────────────
   const P = {
-    screenBg:        isDark ? '#0d1117' : '#f6f8fa',
-    cardBg:          isDark ? '#161b22' : '#ffffff',
-    cardBorder:      isDark ? '#30363d' : '#d0d7de',
-    textPrimary:     isDark ? '#e6edf3' : '#1f2328',
-    textSecondary:   isDark ? '#8b949e' : '#57606a',
-    textMuted:       isDark ? '#6e7681' : '#9198a1',
-    inputBg:         isDark ? '#0d1117' : '#f6f8fa',
-    inputBorder:     isDark ? '#30363d' : '#d0d7de',
-    inputFocusBorder:accentColor,
-    divider:         isDark ? '#21262d' : '#eaecef',
-    modalBg:         isDark ? '#161b22' : '#ffffff',
-    sectionLabel:    isDark ? '#8b949e' : '#57606a',
-    badgeBg:         isDark ? '#21262d' : '#f0f6ff',
-    badgeBorder:     isDark ? '#30363d' : '#d0d7de',
+    screenBg:         isDark ? '#0d1117' : '#f6f8fa',
+    cardBg:           isDark ? '#161b22' : '#ffffff',
+    cardBorder:       isDark ? '#30363d' : '#d0d7de',
+    textPrimary:      isDark ? '#e6edf3' : '#1f2328',
+    textSecondary:    isDark ? '#8b949e' : '#57606a',
+    textMuted:        isDark ? '#6e7681' : '#9198a1',
+    inputBg:          isDark ? '#0d1117' : '#f6f8fa',
+    inputBorder:      isDark ? '#30363d' : '#d0d7de',
+    inputFocusBorder: accentColor,
+    divider:          isDark ? '#21262d' : '#eaecef',
+    modalBg:          isDark ? '#161b22' : '#ffffff',
+    sectionLabel:     isDark ? '#8b949e' : '#57606a',
+    badgeBg:          isDark ? '#21262d' : '#f0f6ff',
+    badgeBorder:      isDark ? '#30363d' : '#d0d7de',
   };
 
   const SEM = getSemantic(isDark);
@@ -177,8 +172,9 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     if (!form.title.trim()) { setFormError('O título é obrigatório.'); return false; }
     if (form.title.trim().length < 2) { setFormError('Título deve ter pelo menos 2 caracteres.'); return false; }
     if (!form.amount.trim()) { setFormError('O valor é obrigatório.'); return false; }
-    const v = parseFloat(form.amount.replace(',', '.'));
-    if (isNaN(v) || v <= 0) { setFormError('Informe um valor numérico maior que zero.'); return false; }
+    // ── Usa parseMoneyMask em vez de parseFloat direto ──
+    const v = parseMoneyMask(form.amount);
+    if (v <= 0) { setFormError('Informe um valor numérico maior que zero.'); return false; }
     return true;
   }, [form]);
 
@@ -188,7 +184,7 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     try {
       await addTransaction({
         title:  form.title.trim(),
-        amount: parseFloat(form.amount.replace(',', '.')),
+        amount: parseMoneyMask(form.amount),   // ← parseMoneyMask
         type:   form.type,
         date:   new Date().toISOString(),
       });
@@ -226,43 +222,22 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
       let label = 'Entrada';
 
       if (item.type === 'gasto') {
-        dotColor = SEM.expense.text;
-        amountColor = SEM.expense.text;
-        signal = '−';
-        badgeBg = SEM.expense.bg;
-        badgeBorder = SEM.expense.border;
-        label = 'Gasto';
+        dotColor = SEM.expense.text; amountColor = SEM.expense.text;
+        signal = '−'; badgeBg = SEM.expense.bg; badgeBorder = SEM.expense.border; label = 'Gasto';
       } else if (item.type === 'economia') {
-        dotColor = SEM.savings.text;
-        amountColor = SEM.savings.text;
-        badgeBg = SEM.savings.bg;
-        badgeBorder = SEM.savings.border;
-        label = 'Economia';
+        dotColor = SEM.savings.text; amountColor = SEM.savings.text;
+        badgeBg = SEM.savings.bg; badgeBorder = SEM.savings.border; label = 'Economia';
       }
 
       return (
-        <View
-          style={[
-            styles.txRow,
-            {
-              borderBottomWidth: isLast ? 0 : 1,
-              borderBottomColor: P.divider,
-            },
-          ]}
-        >
+        <View style={[styles.txRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: P.divider }]}>
           <View style={[styles.txDot, { backgroundColor: dotColor }]} />
           <View style={styles.txMid}>
-            <Text style={[styles.txTitle, { color: P.textPrimary }]} numberOfLines={1}>
-              {item.title}
-            </Text>
-            <Text style={[styles.txDate, { color: P.textMuted }]}>
-              {formatDate(item.date)}
-            </Text>
+            <Text style={[styles.txTitle, { color: P.textPrimary }]} numberOfLines={1}>{item.title}</Text>
+            <Text style={[styles.txDate, { color: P.textMuted }]}>{formatDate(item.date)}</Text>
           </View>
           <View style={styles.txRight}>
-            <Text style={[styles.txAmount, { color: amountColor }]}>
-              {signal} {formatCurrency(item.amount)}
-            </Text>
+            <Text style={[styles.txAmount, { color: amountColor }]}>{signal} {formatCurrency(item.amount)}</Text>
             <View style={[styles.txBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
               <Text style={[styles.txBadgeText, { color: dotColor }]}>{label}</Text>
             </View>
@@ -281,17 +256,12 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── Saudação ──────────────────────────────────────────────── */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+        {/* ── Saudação ───────────────────────────────────────── */}
         <View style={styles.greetRow}>
           <View>
-            <Text style={[styles.greetName, { color: P.textPrimary }]}>
-              {greeting}
-            </Text>
+            <Text style={[styles.greetName, { color: P.textPrimary }]}>{greeting}</Text>
             <Text style={[styles.greetSub, { color: P.textSecondary }]}>
               {getCurrentMonthName()} {new Date().getFullYear()}
             </Text>
@@ -301,124 +271,75 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
           </View>
         </View>
 
-        {/* ── Botão primário ────────────────────────────────────────── */}
-        <TouchableOpacity
-          onPress={openModal}
-          activeOpacity={0.85}
-          style={[styles.addBtn, { backgroundColor: accentColor }]}
-        >
+        {/* ── Botão primário ─────────────────────────────────── */}
+        <TouchableOpacity onPress={openModal} activeOpacity={0.85} style={[styles.addBtn, { backgroundColor: accentColor }]}>
           <Feather name="plus" size={15} color="#ffffff" style={{ marginRight: 8 }} />
           <Text style={styles.addBtnText}>Nova movimentação</Text>
         </TouchableOpacity>
 
-        {/* ── Cards de resumo ───────────────────────────────────────── */}
+        {/* ── Cards de resumo ────────────────────────────────── */}
         {isLoadingMonthly ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator size="small" color={accentColor} />
-            <Text style={[styles.loadingText, { color: P.textMuted }]}>
-              Calculando resumo…
-            </Text>
+            <Text style={[styles.loadingText, { color: P.textMuted }]}>Calculando resumo…</Text>
           </View>
         ) : (
           <>
-            <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>
-              RESUMO DO MÊS
-            </Text>
-
+            <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>RESUMO DO MÊS</Text>
             <View style={styles.cardsGrid}>
-
-              {/* Entradas — SEMPRE verde */}
               <View style={[styles.card, { backgroundColor: SEM.income.bg, borderColor: SEM.income.border }]}>
                 <View style={styles.cardHeader}>
                   <Feather name="trending-up" size={14} color={SEM.income.text} />
                   <Text style={[styles.cardLabel, { color: SEM.income.text }]}>ENTRADAS</Text>
                 </View>
-                <Text style={[styles.cardValue, { color: SEM.income.text }]}>
-                  {formatCurrency(monthlySummary.totalIncome)}
-                </Text>
+                <Text style={[styles.cardValue, { color: SEM.income.text }]}>{formatCurrency(monthlySummary.totalIncome)}</Text>
               </View>
-
-              {/* Gastos — SEMPRE vermelho */}
               <View style={[styles.card, { backgroundColor: SEM.expense.bg, borderColor: SEM.expense.border }]}>
                 <View style={styles.cardHeader}>
                   <Feather name="trending-down" size={14} color={SEM.expense.text} />
                   <Text style={[styles.cardLabel, { color: SEM.expense.text }]}>GASTOS</Text>
                 </View>
-                <Text style={[styles.cardValue, { color: SEM.expense.text }]}>
-                  {formatCurrency(monthlySummary.totalExpenses)}
-                </Text>
+                <Text style={[styles.cardValue, { color: SEM.expense.text }]}>{formatCurrency(monthlySummary.totalExpenses)}</Text>
               </View>
-
-              {/* Sobras — SEMPRE roxo */}
               <View style={[styles.card, { backgroundColor: SEM.surplus.bg, borderColor: SEM.surplus.border }]}>
                 <View style={styles.cardHeader}>
                   <Feather name="activity" size={14} color={SEM.surplus.text} />
                   <Text style={[styles.cardLabel, { color: SEM.surplus.text }]}>SOBRAS</Text>
                 </View>
-                <Text style={[styles.cardValue, {
-                  color: monthlySummary.surplus >= 0
-                    ? SEM.surplus.text
-                    : SEM.expense.text,
-                }]}>
-                  {monthlySummary.surplus < 0 ? '−' : ''}
-                  {formatCurrency(Math.abs(monthlySummary.surplus))}
+                <Text style={[styles.cardValue, { color: monthlySummary.surplus >= 0 ? SEM.surplus.text : SEM.expense.text }]}>
+                  {monthlySummary.surplus < 0 ? '−' : ''}{formatCurrency(Math.abs(monthlySummary.surplus))}
                 </Text>
               </View>
-
-              {/* Economias — SEMPRE azul */}
               <View style={[styles.card, { backgroundColor: SEM.savings.bg, borderColor: SEM.savings.border }]}>
                 <View style={styles.cardHeader}>
                   <Feather name="shield" size={14} color={SEM.savings.text} />
                   <Text style={[styles.cardLabel, { color: SEM.savings.text }]}>ECONOMIAS</Text>
                 </View>
-                <Text style={[styles.cardValue, { color: SEM.savings.text }]}>
-                  {formatCurrency(monthlySummary.totalSavings)}
-                </Text>
+                <Text style={[styles.cardValue, { color: SEM.savings.text }]}>{formatCurrency(monthlySummary.totalSavings)}</Text>
               </View>
-
             </View>
           </>
         )}
 
-        {/* ── Movimentações recentes ─────────────────────────────────── */}
+        {/* ── Movimentações recentes ─────────────────────────── */}
         <View style={styles.listHeaderRow}>
-          <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>
-            MOVIMENTAÇÕES RECENTES
-          </Text>
-          {isLoadingMonthly && (
-            <ActivityIndicator size="small" color={accentColor} />
-          )}
+          <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>MOVIMENTAÇÕES RECENTES</Text>
+          {isLoadingMonthly && <ActivityIndicator size="small" color={accentColor} />}
         </View>
 
         {!isLoadingMonthly && monthlyTransactions.length === 0 ? (
           <View style={[styles.emptyCard, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
             <Feather name="inbox" size={28} color={P.textMuted} />
-            <Text style={[styles.emptyTitle, { color: P.textSecondary }]}>
-              Nenhuma movimentação
-            </Text>
-            <Text style={[styles.emptySub, { color: P.textMuted }]}>
-              Registre sua primeira transação acima.
-            </Text>
+            <Text style={[styles.emptyTitle, { color: P.textSecondary }]}>Nenhuma movimentação</Text>
+            <Text style={[styles.emptySub, { color: P.textMuted }]}>Registre sua primeira transação acima.</Text>
           </View>
         ) : (
           <>
             <View style={[styles.listCard, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
-              <FlatList
-                data={monthlyTransactions}
-                keyExtractor={keyExtractor}
-                renderItem={renderItem}
-                scrollEnabled={false}
-              />
+              <FlatList data={monthlyTransactions} keyExtractor={keyExtractor} renderItem={renderItem} scrollEnabled={false} />
             </View>
-
-            <TouchableOpacity
-              onPress={goToRelatorios}
-              activeOpacity={0.7}
-              style={[styles.seeMoreBtn, { borderColor: P.cardBorder }]}
-            >
-              <Text style={[styles.seeMoreText, { color: accentColor }]}>
-                Ver todos os relatórios
-              </Text>
+            <TouchableOpacity onPress={goToRelatorios} activeOpacity={0.7} style={[styles.seeMoreBtn, { borderColor: P.cardBorder }]}>
+              <Text style={[styles.seeMoreText, { color: accentColor }]}>Ver todos os relatórios</Text>
               <Feather name="chevron-right" size={14} color={accentColor} />
             </TouchableOpacity>
           </>
@@ -427,7 +348,11 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* ── Modal de nova movimentação ─────────────────────────────────────── */}
+      {/* ── Modal de nova movimentação ───────────────────────────────────────
+       *
+       * Estrutura correta: KAV envolve o overlay (não o contrário).
+       * behavior="padding" faz o modal subir quando o teclado aparece.
+       * ──────────────────────────────────────────────────────────────────── */}
       <Modal
         visible={isModalVisible}
         animationType="slide"
@@ -435,25 +360,16 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
         onRequestClose={closeModal}
         statusBarTranslucent
       >
-        <KeyboardAvoidingView
-          behavior="padding"
-          style={styles.modalKbView}
-        >
+        <KeyboardAvoidingView behavior="padding" style={styles.modalKbView}>
           <View style={styles.modalOverlay}>
             <View style={[styles.modalSheet, { backgroundColor: P.modalBg }]}>
 
-              {/* Handle */}
               <View style={[styles.modalHandle, { backgroundColor: P.divider }]} />
 
-              {/* Header do modal */}
               <View style={styles.modalHead}>
                 <View>
-                  <Text style={[styles.modalTitle, { color: P.textPrimary }]}>
-                    Nova movimentação
-                  </Text>
-                  <Text style={[styles.modalSubtitle, { color: P.textMuted }]}>
-                    Registre uma entrada, gasto ou economia
-                  </Text>
+                  <Text style={[styles.modalTitle, { color: P.textPrimary }]}>Nova movimentação</Text>
+                  <Text style={[styles.modalSubtitle, { color: P.textMuted }]}>Registre uma entrada, gasto ou economia</Text>
                 </View>
                 <TouchableOpacity
                   onPress={closeModal}
@@ -465,58 +381,31 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 </TouchableOpacity>
               </View>
 
-              {/* Divisor */}
               <View style={[styles.modalDivider, { backgroundColor: P.divider }]} />
 
-              {/* ── Tipo ──────────────────────────────────────────────── */}
+              {/* ── Tipo ────────────────────────────────────────── */}
               <View style={styles.formField}>
-                <Text style={[styles.formLabel, { color: P.textSecondary }]}>
-                  Tipo de movimentação
-                </Text>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>Tipo de movimentação</Text>
                 <View style={styles.typeRow}>
                   {TYPE_OPTIONS.map((opt) => {
                     const sel = form.type === opt.type;
-
-                    let semColor = SEM.expense.text;
-                    let semBg    = SEM.expense.bg;
-                    let semBdr   = SEM.expense.border;
-                    if (opt.type === 'entrada') {
-                      semColor = SEM.income.text;
-                      semBg    = SEM.income.bg;
-                      semBdr   = SEM.income.border;
-                    } else if (opt.type === 'economia') {
-                      semColor = SEM.savings.text;
-                      semBg    = SEM.savings.bg;
-                      semBdr   = SEM.savings.border;
-                    }
-
+                    let semColor = SEM.expense.text, semBg = SEM.expense.bg, semBdr = SEM.expense.border;
+                    if (opt.type === 'entrada')  { semColor = SEM.income.text;  semBg = SEM.income.bg;  semBdr = SEM.income.border; }
+                    if (opt.type === 'economia') { semColor = SEM.savings.text; semBg = SEM.savings.bg; semBdr = SEM.savings.border; }
                     return (
                       <TouchableOpacity
                         key={opt.type}
                         onPress={() => updateField('type', opt.type)}
                         disabled={isSaving}
                         activeOpacity={0.8}
-                        style={[
-                          styles.typeBtn,
-                          {
-                            backgroundColor: sel ? semBg  : P.inputBg,
-                            borderColor:     sel ? semBdr : P.inputBorder,
-                            borderWidth:     sel ? 1.5 : 1,
-                          },
-                        ]}
+                        style={[styles.typeBtn, {
+                          backgroundColor: sel ? semBg  : P.inputBg,
+                          borderColor:     sel ? semBdr : P.inputBorder,
+                          borderWidth:     sel ? 1.5 : 1,
+                        }]}
                       >
-                        <Feather
-                          name={opt.icon}
-                          size={14}
-                          color={sel ? semColor : P.textMuted}
-                        />
-                        <Text style={[
-                          styles.typeBtnText,
-                          {
-                            color:      sel ? semColor : P.textMuted,
-                            fontWeight: sel ? '600' : '400',
-                          },
-                        ]}>
+                        <Feather name={opt.icon} size={14} color={sel ? semColor : P.textMuted} />
+                        <Text style={[styles.typeBtnText, { color: sel ? semColor : P.textMuted, fontWeight: sel ? '600' : '400' }]}>
                           {opt.label}
                         </Text>
                       </TouchableOpacity>
@@ -525,20 +414,11 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 </View>
               </View>
 
-              {/* ── Título ───────────────────────────────────────────── */}
+              {/* ── Título ──────────────────────────────────────── */}
               <View style={styles.formField}>
-                <Text style={[styles.formLabel, { color: P.textSecondary }]}>
-                  Título
-                </Text>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>Título</Text>
                 <TextInput
-                  style={[
-                    styles.formInput,
-                    {
-                      backgroundColor: P.inputBg,
-                      borderColor:     P.inputBorder,
-                      color:           P.textPrimary,
-                    },
-                  ]}
+                  style={[styles.formInput, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.textPrimary }]}
                   placeholder="Ex: Aluguel, Salário, Mercado…"
                   placeholderTextColor={P.textMuted}
                   value={form.title}
@@ -550,30 +430,27 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 />
               </View>
 
-              {/* ── Valor ────────────────────────────────────────────── */}
+              {/* ── Valor ────────────────────────────────────────
+               *
+               * Máscara bancária: dígitos da direita para esquerda.
+               * O "R$" faz parte do próprio valor formatado, portanto
+               * o prefixo estático foi removido.
+               * ──────────────────────────────────────────────── */}
               <View style={styles.formField}>
-                <Text style={[styles.formLabel, { color: P.textSecondary }]}>
-                  Valor (R$)
-                </Text>
-                <View style={[
-                  styles.amountRow,
-                  { backgroundColor: P.inputBg, borderColor: P.inputBorder },
-                ]}>
-                  <Text style={[styles.amountPrefix, { color: P.textMuted }]}>R$</Text>
-                  <TextInput
-                    style={[styles.amountInput, { color: P.textPrimary }]}
-                    placeholder="0,00"
-                    placeholderTextColor={P.textMuted}
-                    value={form.amount}
-                    onChangeText={(t) => updateField('amount', t.replace(/[^0-9.,]/g, ''))}
-                    keyboardType="decimal-pad"
-                    returnKeyType="done"
-                    editable={!isSaving}
-                  />
-                </View>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>Valor</Text>
+                <TextInput
+                  style={[styles.moneyInput, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.textPrimary }]}
+                  placeholder="R$ 0,00"
+                  placeholderTextColor={P.textMuted}
+                  value={form.amount}
+                  onChangeText={(t) => updateField('amount', applyMoneyMask(t))}
+                  keyboardType="number-pad"
+                  returnKeyType="done"
+                  editable={!isSaving}
+                />
               </View>
 
-              {/* ── Erro ─────────────────────────────────────────────── */}
+              {/* ── Erro ────────────────────────────────────────── */}
               {formError !== null && (
                 <View style={styles.errorBox}>
                   <Feather name="alert-circle" size={13} color="#dc2626" style={{ marginRight: 7 }} />
@@ -581,15 +458,12 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 </View>
               )}
 
-              {/* ── Botão salvar ──────────────────────────────────────── */}
+              {/* ── Botão salvar ─────────────────────────────────── */}
               <TouchableOpacity
                 onPress={handleSave}
                 disabled={isSaving}
                 activeOpacity={0.85}
-                style={[
-                  styles.saveBtn,
-                  { backgroundColor: isSaving ? '#93bbff' : accentColor },
-                ]}
+                style={[styles.saveBtn, { backgroundColor: isSaving ? '#93bbff' : accentColor }]}
               >
                 {isSaving ? (
                   <ActivityIndicator size="small" color="#ffffff" />
@@ -601,16 +475,9 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 )}
               </TouchableOpacity>
 
-              {/* ── Botão cancelar ────────────────────────────────────── */}
-              <TouchableOpacity
-                onPress={closeModal}
-                disabled={isSaving}
-                activeOpacity={0.7}
-                style={styles.cancelBtn}
-              >
-                <Text style={[styles.cancelBtnText, { color: P.textMuted }]}>
-                  Cancelar
-                </Text>
+              {/* ── Botão cancelar ───────────────────────────────── */}
+              <TouchableOpacity onPress={closeModal} disabled={isSaving} activeOpacity={0.7} style={styles.cancelBtn}>
+                <Text style={[styles.cancelBtnText, { color: P.textMuted }]}>Cancelar</Text>
               </TouchableOpacity>
 
             </View>
@@ -624,249 +491,90 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea:     { flex: 1 },
-  scroll:       { flex: 1 },
-  scrollContent:{ paddingHorizontal: 20, paddingTop: 20 },
+  safeArea:      { flex: 1 },
+  scroll:        { flex: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
 
-  // ── Saudação ───────────────────────────────────────────────────────────
-  greetRow:   {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
+  greetRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
   greetName:  { fontSize: 20, fontWeight: '700', letterSpacing: -0.3, marginBottom: 2 },
   greetSub:   { fontSize: 13 },
-  greetBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  greetBadge: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // ── Botão primário ──────────────────────────────────────────────────────
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 13,
-    marginBottom: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 4,
-    elevation: 3,
-  },
+  addBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingVertical: 13, marginBottom: 28, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 3 },
   addBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
 
-  // ── Loading ─────────────────────────────────────────────────────────────
   loadingRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 28, gap: 10 },
   loadingText: { fontSize: 13 },
 
-  // ── Labels de seção ─────────────────────────────────────────────────────
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.6,
-    marginBottom: 12,
-  },
-  listHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-    marginTop: 8,
-  },
+  sectionLabel:  { fontSize: 11, fontWeight: '600', letterSpacing: 0.6, marginBottom: 12 },
+  listHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, marginTop: 8 },
 
-  // ── Grid de cards ────────────────────────────────────────────────────────
-  cardsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 28,
-  },
-  card: {
-    width: '47.8%',
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 14,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
-  },
-  cardLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  cardValue: {
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
+  cardsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 28 },
+  card:      { width: '47.8%', borderRadius: 10, borderWidth: 1, padding: 14 },
+  cardHeader:{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  cardLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  cardValue: { fontSize: 17, fontWeight: '800', letterSpacing: -0.4 },
 
-  // ── Lista de transações ──────────────────────────────────────────────────
-  listCard: {
-    borderRadius: 10,
-    borderWidth: 1,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  txRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-  },
-  txDot:    { width: 8, height: 8, borderRadius: 4, marginRight: 12, flexShrink: 0 },
-  txMid:    { flex: 1, marginRight: 8 },
-  txTitle:  { fontSize: 13, fontWeight: '500', marginBottom: 2 },
-  txDate:   { fontSize: 11 },
-  txRight:  { alignItems: 'flex-end', gap: 5 },
-  txAmount: { fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
-  txBadge:  { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  listCard:    { borderRadius: 10, borderWidth: 1, overflow: 'hidden', marginBottom: 8 },
+  txRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 14 },
+  txDot:       { width: 8, height: 8, borderRadius: 4, marginRight: 12, flexShrink: 0 },
+  txMid:       { flex: 1, marginRight: 8 },
+  txTitle:     { fontSize: 13, fontWeight: '500', marginBottom: 2 },
+  txDate:      { fontSize: 11 },
+  txRight:     { alignItems: 'flex-end', gap: 5 },
+  txAmount:    { fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
+  txBadge:     { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   txBadgeText: { fontSize: 10, fontWeight: '600' },
 
-  // ── Estado vazio ─────────────────────────────────────────────────────────
-  emptyCard:  {
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    paddingVertical: 36,
-    gap: 8,
-  },
+  emptyCard:  { borderRadius: 10, borderWidth: 1, alignItems: 'center', paddingVertical: 36, gap: 8 },
   emptyTitle: { fontSize: 14, fontWeight: '500', marginTop: 4 },
   emptySub:   { fontSize: 12, textAlign: 'center' },
 
-  // ── Botão "ver mais" ─────────────────────────────────────────────────────
-  seeMoreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingVertical: 11,
-    gap: 5,
-  },
+  seeMoreBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 8, borderWidth: 1, paddingVertical: 11, gap: 5 },
   seeMoreText: { fontSize: 13, fontWeight: '500' },
 
-  // ── Modal ────────────────────────────────────────────────────────────────
-  modalKbView: {
-    flex: 1,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet:  {
-    borderTopLeftRadius: 16,
+  // ── Modal ─────────────────────────────────────────────────────────────────
+  // KAV envolve o overlay: flex:1 permite que o KAV ocupe a tela inteira e
+  // empurre o sheet para cima quando o teclado aparecer.
+  modalKbView:  { flex: 1 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  modalSheet: {
+    borderTopLeftRadius:  16,
     borderTopRightRadius: 16,
-    paddingHorizontal: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
-    paddingTop: 14,
+    paddingHorizontal:    24,
+    paddingBottom:        Platform.OS === 'ios' ? 40 : 28,
+    paddingTop:           14,
   },
-  modalHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  modalHead: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
+  modalHandle:   { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+  modalHead:     { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 },
   modalTitle:    { fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 3 },
   modalSubtitle: { fontSize: 12 },
-  closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-  },
-  modalDivider: { height: 1, marginBottom: 20 },
+  closeBtn:      { width: 30, height: 30, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  modalDivider:  { height: 1, marginBottom: 20 },
 
   // ── Formulário ────────────────────────────────────────────────────────────
   formField: { marginBottom: 16 },
   formLabel: { fontSize: 12, fontWeight: '500', marginBottom: 7, letterSpacing: 0.1 },
-  formInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    fontSize: 14,
-  },
+  formInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 11, fontSize: 14 },
 
-  // Seletor de tipo
   typeRow: { flexDirection: 'row', gap: 8 },
-  typeBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
+  typeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 10, borderRadius: 8 },
   typeBtnText: { fontSize: 12 },
 
-  // Campo de valor com prefixo R$
-  amountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  amountPrefix: {
+  // Input monetário: sem prefixo externo — o "R$" faz parte do valor mascarado
+  moneyInput: {
+    borderWidth:       1,
+    borderRadius:      8,
     paddingHorizontal: 12,
-    paddingVertical: 11,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  amountInput: {
-    flex: 1,
-    paddingVertical: 11,
-    paddingRight: 12,
-    fontSize: 14,
+    paddingVertical:   11,
+    fontSize:          14,
   },
 
-  // Erro
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 14,
-  },
+  errorBox:  { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },
   errorText: { flex: 1, fontSize: 13, color: '#dc2626', lineHeight: 18 },
 
-  // Botões de ação
-  saveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 14,
-    marginBottom: 10,
-  },
-  saveBtnText:   { color: '#ffffff', fontSize: 14, fontWeight: '600' },
-  cancelBtn:     { paddingVertical: 12, alignItems: 'center' },
-  cancelBtnText: { fontSize: 13 },
+  saveBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingVertical: 14, marginBottom: 10 },
+  saveBtnText:  { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  cancelBtn:    { paddingVertical: 12, alignItems: 'center' },
+  cancelBtnText:{ fontSize: 13 },
 });

@@ -50,6 +50,37 @@ function maskApiKey(key: string): string {
   return `${key.slice(0, 7)}${'•'.repeat(5)}${key.slice(-3)}`;
 }
 
+// ─── Máscara monetária estilo banco ───────────────────────────────────────────
+//
+// Dígitos adicionados da direita para a esquerda (igual app de banco).
+// "1" → "R$ 0,01" | "100" → "R$ 1,00" | "12345" → "R$ 123,45"
+//
+// numberToMask: converte um número já salvo de volta para o formato mascarado
+// (usado no useEffect para popular o campo quando monthlyIncome já tem valor).
+
+function applyMoneyMask(input: string): string {
+  const digits = input.replace(/\D/g, '');
+  if (!digits) return '';
+  const cents = parseInt(digits, 10);
+  if (cents === 0) return '';
+  const str = (cents / 100).toFixed(2);
+  const [reais = '0', centStr = '00'] = str.split('.');
+  const reaisFormatted = reais.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `R$ ${reaisFormatted},${centStr}`;
+}
+
+function parseMoneyMask(value: string): number {
+  const clean = value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(clean);
+  return isNaN(n) ? 0 : n;
+}
+
+function numberToMask(value: number): string {
+  if (value <= 0) return '';
+  // Converte o número para centavos (string de dígitos) e aplica a máscara
+  return applyMoneyMask(Math.round(value * 100).toString());
+}
+
 // ─── Componente ──────────────────────────────────────────────────────────────
 
 export default function ConfiguracoesScreen(
@@ -64,34 +95,38 @@ export default function ConfiguracoesScreen(
   const theme          = useSettingsStore((s) => s.theme);
   const storedAccent   = useSettingsStore((s) => s.accentColor);
 
-  const setUserName    = useSettingsStore((s) => s.setUserName);
+  const setUserName      = useSettingsStore((s) => s.setUserName);
   const setMonthlyIncome = useSettingsStore((s) => s.setMonthlyIncome);
-  const setGroqApiKey  = useSettingsStore((s) => s.setGroqApiKey);
-  const setTheme       = useSettingsStore((s) => s.setTheme);
-  const setAccentColor = useSettingsStore((s) => s.setAccentColor);
-  const resetSettings  = useSettingsStore((s) => s.resetSettings);
+  const setGroqApiKey    = useSettingsStore((s) => s.setGroqApiKey);
+  const setTheme         = useSettingsStore((s) => s.setTheme);
+  const setAccentColor   = useSettingsStore((s) => s.setAccentColor);
+  const resetSettings    = useSettingsStore((s) => s.resetSettings);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   const { signOut, profile } = useAuth();
 
   // ── Estado local ─────────────────────────────────────────────────────────
-  const [editName,    setEditName]    = useState<string>(userName);
-  const [editIncome,  setEditIncome]  = useState<string>(monthlyIncome > 0 ? String(monthlyIncome) : '');
-  const [editApiKey,  setEditApiKey]  = useState<string>(groqApiKey);
-  const [showApiKey,  setShowApiKey]  = useState<boolean>(false);
-  const [saved,       setSaved]       = useState<boolean>(false);
+  const [editName,   setEditName]   = useState<string>(userName);
+  // editIncome armazena o valor já formatado com máscara ("R$ 1.234,56")
+  const [editIncome, setEditIncome] = useState<string>(
+    monthlyIncome > 0 ? numberToMask(monthlyIncome) : ''
+  );
+  const [editApiKey, setEditApiKey] = useState<string>(groqApiKey);
+  const [showApiKey, setShowApiKey] = useState<boolean>(false);
+  const [saved,      setSaved]      = useState<boolean>(false);
 
   useEffect(() => {
     setEditName(userName);
-    setEditIncome(monthlyIncome > 0 ? String(monthlyIncome) : '');
+    // Converte o número salvo de volta para o formato mascarado
+    setEditIncome(monthlyIncome > 0 ? numberToMask(monthlyIncome) : '');
     setEditApiKey(groqApiKey);
   }, [userName, monthlyIncome, groqApiKey]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleSave = useCallback((): void => {
     setUserName(editName.trim());
-    const parsed = parseFloat(editIncome.replace(',', '.'));
-    setMonthlyIncome(!isNaN(parsed) && parsed >= 0 ? parsed : 0);
+    // parseMoneyMask extrai o número de "R$ 1.234,56" → 1234.56
+    setMonthlyIncome(parseMoneyMask(editIncome));
     setGroqApiKey(editApiKey.trim());
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
@@ -126,13 +161,11 @@ export default function ConfiguracoesScreen(
     );
   }, [signOut]);
 
+  // Compara usando parseMoneyMask para não ter falso positivo por formatação
   const hasChanges =
     editName.trim() !== userName ||
     editApiKey.trim() !== groqApiKey ||
-    (() => {
-      const p = parseFloat(editIncome.replace(',', '.'));
-      return !isNaN(p) ? p !== monthlyIncome : monthlyIncome !== 0;
-    })();
+    parseMoneyMask(editIncome) !== monthlyIncome;
 
   // ── Paleta dinâmica ───────────────────────────────────────────────────────
   const P = {
@@ -161,10 +194,7 @@ export default function ConfiguracoesScreen(
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: P.screenBg }]}
-      edges={['bottom']}
-    >
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -174,12 +204,8 @@ export default function ConfiguracoesScreen(
         {/* ── Cabeçalho da tela ─────────────────────────────── */}
         <View style={styles.pageHeader}>
           <View>
-            <Text style={[styles.pageTitle, { color: P.textPrimary }]}>
-              Configurações
-            </Text>
-            <Text style={[styles.pageSub, { color: P.textMuted }]}>
-              Perfil, integrações e aparência
-            </Text>
+            <Text style={[styles.pageTitle, { color: P.textPrimary }]}>Configurações</Text>
+            <Text style={[styles.pageSub, { color: P.textMuted }]}>Perfil, integrações e aparência</Text>
           </View>
           <View style={[styles.headerIcon, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
             <Feather name="settings" size={18} color={accentColor} />
@@ -190,9 +216,7 @@ export default function ConfiguracoesScreen(
         {saved && (
           <View style={[styles.savedBanner, { backgroundColor: P.successBg, borderColor: P.successBorder }]}>
             <Feather name="check" size={14} color={P.successText} style={{ marginRight: 8 }} />
-            <Text style={[styles.savedText, { color: P.successText }]}>
-              Configurações salvas com sucesso.
-            </Text>
+            <Text style={[styles.savedText, { color: P.successText }]}>Configurações salvas com sucesso.</Text>
           </View>
         )}
 
@@ -210,22 +234,15 @@ export default function ConfiguracoesScreen(
                 <Text style={[styles.fieldLabel, { color: P.textSecondary }]}>Email</Text>
               </View>
               <View style={[styles.readOnlyField, { backgroundColor: P.readOnlyBg, borderColor: P.inputBorder }]}>
-                <Text style={[styles.readOnlyText, { color: P.textMuted }]} numberOfLines={1}>
-                  {profile.email}
-                </Text>
+                <Text style={[styles.readOnlyText, { color: P.textMuted }]} numberOfLines={1}>{profile.email}</Text>
                 <View style={[styles.readOnlyBadge, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
-                  <Text style={[styles.readOnlyBadgeText, { color: P.textMuted }]}>
-                    Supabase
-                  </Text>
+                  <Text style={[styles.readOnlyBadgeText, { color: P.textMuted }]}>Supabase</Text>
                 </View>
               </View>
             </View>
           ) : null}
 
-          {/* Divisor */}
-          {profile?.email ? (
-            <View style={[styles.fieldDivider, { backgroundColor: P.divider }]} />
-          ) : null}
+          {profile?.email ? <View style={[styles.fieldDivider, { backgroundColor: P.divider }]} /> : null}
 
           {/* Nome */}
           <View style={styles.fieldRow}>
@@ -244,32 +261,26 @@ export default function ConfiguracoesScreen(
               returnKeyType="next"
               maxLength={50}
             />
-            <Text style={[styles.fieldHint, { color: P.textMuted }]}>
-              Exibido na saudação do Dashboard
-            </Text>
+            <Text style={[styles.fieldHint, { color: P.textMuted }]}>Exibido na saudação do Dashboard</Text>
           </View>
 
-          {/* Divisor */}
           <View style={[styles.fieldDivider, { backgroundColor: P.divider }]} />
 
-          {/* Renda mensal — estilo campo seguro */}
+          {/* Renda mensal — máscara bancária, sem prefixo externo */}
           <View style={styles.fieldRow}>
             <View style={styles.fieldLabelRow}>
               <Feather name="trending-up" size={13} color={P.textMuted} style={{ marginRight: 6 }} />
               <Text style={[styles.fieldLabel, { color: P.textSecondary }]}>Renda mensal</Text>
             </View>
-            <View style={[styles.inputWithPrefix, { backgroundColor: P.inputBg, borderColor: P.inputBorder }]}>
-              <Text style={[styles.inputPrefix, { color: P.textMuted }]}>R$</Text>
-              <TextInput
-                style={[styles.inputInner, { color: P.inputText }]}
-                placeholder="0,00"
-                placeholderTextColor={P.textMuted}
-                value={editIncome}
-                onChangeText={(t) => setEditIncome(t.replace(/[^0-9.,]/g, ''))}
-                keyboardType="decimal-pad"
-                returnKeyType="next"
-              />
-            </View>
+            <TextInput
+              style={[styles.input, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.inputText }]}
+              placeholder="R$ 0,00"
+              placeholderTextColor={P.textMuted}
+              value={editIncome}
+              onChangeText={(t) => setEditIncome(applyMoneyMask(t))}
+              keyboardType="number-pad"
+              returnKeyType="next"
+            />
             {monthlyIncome > 0 && (
               <Text style={[styles.fieldHint, { color: P.textMuted }]}>
                 Salvo: {formatCurrency(monthlyIncome)}
@@ -284,7 +295,6 @@ export default function ConfiguracoesScreen(
         <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>INTEGRAÇÃO COM IA</Text>
         <View style={[styles.card, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
 
-          {/* Banner informativo */}
           <View style={[styles.infoBanner, { backgroundColor: P.warnBg, borderColor: P.warnBorder }]}>
             <Feather name="shield" size={13} color={P.warnText} style={{ marginRight: 8, marginTop: 1 }} />
             <Text style={[styles.infoBannerText, { color: P.warnText }]}>
@@ -292,35 +302,19 @@ export default function ConfiguracoesScreen(
             </Text>
           </View>
 
-          {/* Campo da chave — visual de campo seguro */}
           <View style={styles.fieldRow}>
             <View style={styles.fieldLabelRow}>
               <Feather name="key" size={13} color={P.textMuted} style={{ marginRight: 6 }} />
               <Text style={[styles.fieldLabel, { color: P.textSecondary }]}>Chave da API Groq</Text>
-              {/* Status inline */}
-              <View style={[
-                styles.keyStatusDot,
-                {
-                  backgroundColor: groqApiKey.length > 0
-                    ? SEMANTIC.income.text
-                    : SEMANTIC.expense.text,
-                },
-              ]} />
-              <Text style={[
-                styles.keyStatusText,
-                { color: groqApiKey.length > 0 ? SEMANTIC.income.text : SEMANTIC.expense.text },
-              ]}>
+              <View style={[styles.keyStatusDot, { backgroundColor: groqApiKey.length > 0 ? SEMANTIC.income.text : SEMANTIC.expense.text }]} />
+              <Text style={[styles.keyStatusText, { color: groqApiKey.length > 0 ? SEMANTIC.income.text : SEMANTIC.expense.text }]}>
                 {groqApiKey.length > 0 ? 'Configurada' : 'Não configurada'}
               </Text>
             </View>
 
-            <View style={[styles.apiKeyRow]}>
+            <View style={styles.apiKeyRow}>
               <TextInput
-                style={[
-                  styles.input,
-                  styles.apiKeyInput,
-                  { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.inputText },
-                ]}
+                style={[styles.input, styles.apiKeyInput, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.inputText }]}
                 placeholder="gsk_..."
                 placeholderTextColor={P.textMuted}
                 value={showApiKey ? editApiKey : (editApiKey.length > 0 ? maskApiKey(editApiKey) : '')}
@@ -336,11 +330,7 @@ export default function ConfiguracoesScreen(
                 activeOpacity={0.7}
                 style={[styles.eyeBtn, { backgroundColor: P.inputBg, borderColor: P.inputBorder }]}
               >
-                <Feather
-                  name={showApiKey ? 'eye-off' : 'eye'}
-                  size={15}
-                  color={P.textMuted}
-                />
+                <Feather name={showApiKey ? 'eye-off' : 'eye'} size={15} color={P.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -356,14 +346,12 @@ export default function ConfiguracoesScreen(
         <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>APARÊNCIA</Text>
         <View style={[styles.card, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
 
-          {/* ── Seletor de tema ─────────────────────────────── */}
+          {/* Seletor de tema */}
           <View style={styles.fieldRow}>
             <View style={styles.fieldLabelRow}>
               <Feather name="layout" size={13} color={P.textMuted} style={{ marginRight: 6 }} />
               <Text style={[styles.fieldLabel, { color: P.textSecondary }]}>Tema</Text>
             </View>
-
-            {/* Botões de tema — visual de segmented control */}
             <View style={[styles.themeSegment, { backgroundColor: P.rowBg, borderColor: P.cardBorder }]}>
               {THEME_OPTIONS.map((opt, idx) => {
                 const sel = theme === opt.value;
@@ -389,46 +377,27 @@ export default function ConfiguracoesScreen(
                       },
                     ]}
                   >
-                    <Feather
-                      name={opt.icon}
-                      size={13}
-                      color={sel ? accentColor : P.textMuted}
-                      style={{ marginRight: 5 }}
-                    />
-                    <Text style={[
-                      styles.themeSegmentText,
-                      {
-                        color:      sel ? accentColor : P.textMuted,
-                        fontWeight: sel ? '600' : '400',
-                      },
-                    ]}>
+                    <Feather name={opt.icon} size={13} color={sel ? accentColor : P.textMuted} style={{ marginRight: 5 }} />
+                    <Text style={[styles.themeSegmentText, { color: sel ? accentColor : P.textMuted, fontWeight: sel ? '600' : '400' }]}>
                       {opt.label}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-
             <Text style={[styles.fieldHint, { color: P.textMuted }]}>
-              {theme === 'system'
-                ? 'Seguindo as configurações do dispositivo'
-                : theme === 'dark'
-                ? 'Tema escuro ativado'
-                : 'Tema claro ativado'}
+              {theme === 'system' ? 'Seguindo as configurações do dispositivo' : theme === 'dark' ? 'Tema escuro ativado' : 'Tema claro ativado'}
             </Text>
           </View>
 
-          {/* Divisor */}
           <View style={[styles.fieldDivider, { backgroundColor: P.divider }]} />
 
-          {/* ── Seletor de cor de destaque ───────────────────── */}
+          {/* Cor de destaque */}
           <View style={[styles.fieldRow, styles.lastField]}>
             <View style={styles.fieldLabelRow}>
               <Feather name="droplet" size={13} color={P.textMuted} style={{ marginRight: 6 }} />
               <Text style={[styles.fieldLabel, { color: P.textSecondary }]}>Cor de destaque</Text>
             </View>
-
-            {/* Grade de swatches */}
             <View style={styles.accentGrid}>
               {ACCENT_PRESETS.map((preset) => {
                 const sel = storedAccent === preset.color;
@@ -442,39 +411,18 @@ export default function ConfiguracoesScreen(
                     accessibilityLabel={`Cor ${preset.label}`}
                     style={styles.swatchItem}
                   >
-                    {/* Swatch */}
-                    <View
-                      style={[
-                        styles.swatchOuter,
-                        {
-                          borderColor: sel ? preset.color : 'transparent',
-                          backgroundColor: sel
-                            ? hexAlpha(preset.color, 0.1)
-                            : 'transparent',
-                        },
-                      ]}
-                    >
+                    <View style={[styles.swatchOuter, { borderColor: sel ? preset.color : 'transparent', backgroundColor: sel ? hexAlpha(preset.color, 0.1) : 'transparent' }]}>
                       <View style={[styles.swatchInner, { backgroundColor: preset.color }]}>
-                        {sel && (
-                          <Feather name="check" size={12} color="#ffffff" />
-                        )}
+                        {sel && <Feather name="check" size={12} color="#ffffff" />}
                       </View>
                     </View>
-                    {/* Label */}
-                    <Text style={[
-                      styles.swatchLabel,
-                      {
-                        color:      sel ? preset.color : P.textMuted,
-                        fontWeight: sel ? '600' : '400',
-                      },
-                    ]}>
+                    <Text style={[styles.swatchLabel, { color: sel ? preset.color : P.textMuted, fontWeight: sel ? '600' : '400' }]}>
                       {preset.label}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-
             <Text style={[styles.fieldHint, { color: P.textMuted }]}>
               Aplicada em botões, indicadores e seleções. As cores financeiras são preservadas.
             </Text>
@@ -485,25 +433,14 @@ export default function ConfiguracoesScreen(
         <TouchableOpacity
           onPress={handleSave}
           activeOpacity={0.85}
-          style={[
-            styles.saveBtn,
-            {
-              backgroundColor: hasChanges ? accentColor : (isDark ? '#21262d' : '#eaecef'),
-              shadowOpacity:   hasChanges ? 0.15 : 0,
-              elevation:       hasChanges ? 4 : 0,
-            },
-          ]}
+          style={[styles.saveBtn, {
+            backgroundColor: hasChanges ? accentColor : (isDark ? '#21262d' : '#eaecef'),
+            shadowOpacity:   hasChanges ? 0.15 : 0,
+            elevation:       hasChanges ? 4 : 0,
+          }]}
         >
-          <Feather
-            name={hasChanges ? 'save' : 'check'}
-            size={15}
-            color={hasChanges ? '#ffffff' : P.textMuted}
-            style={{ marginRight: 8 }}
-          />
-          <Text style={[
-            styles.saveBtnText,
-            { color: hasChanges ? '#ffffff' : P.textMuted },
-          ]}>
+          <Feather name={hasChanges ? 'save' : 'check'} size={15} color={hasChanges ? '#ffffff' : P.textMuted} style={{ marginRight: 8 }} />
+          <Text style={[styles.saveBtnText, { color: hasChanges ? '#ffffff' : P.textMuted }]}>
             {hasChanges ? 'Salvar alterações' : 'Tudo salvo'}
           </Text>
         </TouchableOpacity>
@@ -514,45 +451,26 @@ export default function ConfiguracoesScreen(
         <Text style={[styles.sectionLabel, { color: P.sectionLabel }]}>CONTA</Text>
         <View style={[styles.card, { backgroundColor: P.cardBg, borderColor: P.cardBorder }]}>
 
-          {/* Resetar configurações */}
-          <TouchableOpacity
-            onPress={handleReset}
-            activeOpacity={0.75}
-            style={styles.accountRow}
-          >
+          <TouchableOpacity onPress={handleReset} activeOpacity={0.75} style={styles.accountRow}>
             <View style={[styles.accountIcon, { backgroundColor: '#fef2f2', borderColor: '#fecaca' }]}>
               <Feather name="trash-2" size={15} color={SEMANTIC.expense.text} />
             </View>
             <View style={styles.accountInfo}>
-              <Text style={[styles.accountTitle, { color: SEMANTIC.expense.text }]}>
-                Resetar configurações
-              </Text>
-              <Text style={[styles.accountSub, { color: P.textMuted }]}>
-                Limpa nome, renda e chave da API
-              </Text>
+              <Text style={[styles.accountTitle, { color: SEMANTIC.expense.text }]}>Resetar configurações</Text>
+              <Text style={[styles.accountSub, { color: P.textMuted }]}>Limpa nome, renda e chave da API</Text>
             </View>
             <Feather name="chevron-right" size={16} color={P.textMuted} />
           </TouchableOpacity>
 
-          {/* Divisor */}
           <View style={[styles.fieldDivider, { backgroundColor: P.divider }]} />
 
-          {/* Sair da conta */}
-          <TouchableOpacity
-            onPress={handleLogout}
-            activeOpacity={0.75}
-            style={styles.accountRow}
-          >
+          <TouchableOpacity onPress={handleLogout} activeOpacity={0.75} style={styles.accountRow}>
             <View style={[styles.accountIcon, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
               <Feather name="log-out" size={15} color={P.textSecondary} />
             </View>
             <View style={styles.accountInfo}>
-              <Text style={[styles.accountTitle, { color: P.textPrimary }]}>
-                Sair da conta
-              </Text>
-              <Text style={[styles.accountSub, { color: P.textMuted }]}>
-                Desconectar do Supabase
-              </Text>
+              <Text style={[styles.accountTitle, { color: P.textPrimary }]}>Sair da conta</Text>
+              <Text style={[styles.accountSub, { color: P.textMuted }]}>Desconectar do Supabase</Text>
             </View>
             <Feather name="chevron-right" size={16} color={P.textMuted} />
           </TouchableOpacity>
@@ -576,194 +494,67 @@ const styles = StyleSheet.create({
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
 
-  // ── Cabeçalho ────────────────────────────────────────────────────────────
-  pageHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
+  pageHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
   pageTitle:  { fontSize: 22, fontWeight: '700', letterSpacing: -0.4, marginBottom: 2 },
   pageSub:    { fontSize: 13 },
   headerIcon: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // ── Banner salvo ──────────────────────────────────────────────────────────
-  savedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 16,
-  },
-  savedText: { fontSize: 13, fontWeight: '500' },
+  savedBanner: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 },
+  savedText:   { fontSize: 13, fontWeight: '500' },
 
-  // ── Labels de seção ───────────────────────────────────────────────────────
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.6,
-    marginBottom: 8,
-  },
+  sectionLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.6, marginBottom: 8 },
 
-  // ── Card ─────────────────────────────────────────────────────────────────
-  card: {
-    borderRadius: 10,
-    borderWidth: 1,
-    marginBottom: 20,
-    overflow: 'hidden',
-  },
-  fieldRow:       { padding: 16 },
-  lastField:      { paddingBottom: 16 },
-  fieldDivider:   { height: 1 },
+  card:         { borderRadius: 10, borderWidth: 1, marginBottom: 20, overflow: 'hidden' },
+  fieldRow:     { padding: 16 },
+  lastField:    { paddingBottom: 16 },
+  fieldDivider: { height: 1 },
 
-  fieldLabelRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  fieldLabel:     { fontSize: 13, fontWeight: '500' },
-  fieldHint:      { fontSize: 11, marginTop: 6, lineHeight: 16 },
+  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  fieldLabel:    { fontSize: 13, fontWeight: '500' },
+  fieldHint:     { fontSize: 11, marginTop: 6, lineHeight: 16 },
 
-  // ── Inputs genéricos ──────────────────────────────────────────────────────
+  // Input genérico — renda mensal usa este mesmo estilo (sem container especial)
   input: {
-    borderWidth: 1,
-    borderRadius: 8,
+    borderWidth:       1,
+    borderRadius:      8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    paddingVertical:   10,
+    fontSize:          14,
   },
 
-  // Input com prefixo (renda mensal)
-  inputWithPrefix: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  inputPrefix: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, fontWeight: '500' },
-  inputInner:  { flex: 1, paddingVertical: 10, paddingRight: 12, fontSize: 14 },
-
-  // Campo somente leitura
-  readOnlyField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
+  readOnlyField:     { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
   readOnlyText:      { flex: 1, fontSize: 14 },
   readOnlyBadge:     { borderWidth: 1, borderRadius: 4, paddingHorizontal: 7, paddingVertical: 3 },
   readOnlyBadgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
 
-  // API Key
   apiKeyRow:  { flexDirection: 'row', gap: 8 },
   apiKeyInput:{ flex: 1 },
-  eyeBtn: {
-    width: 44,
-    height: 44,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  eyeBtn:     { width: 44, height: 44, borderWidth: 1, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
 
-  // Status da chave (inline label)
   keyStatusDot:  { width: 7, height: 7, borderRadius: 4, marginLeft: 8, marginRight: 4 },
   keyStatusText: { fontSize: 11, fontWeight: '600' },
 
-  // Banner informativo
-  infoBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    margin: 16,
-    marginBottom: 0,
-  },
+  infoBanner:     { flexDirection: 'row', alignItems: 'flex-start', borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, margin: 16, marginBottom: 0 },
   infoBannerText: { flex: 1, fontSize: 12, lineHeight: 18 },
 
-  // ── Tema — segmented control ─────────────────────────────────────────────
-  themeSegment: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderRadius: 8,
-    overflow: 'hidden',
-    padding: 3,
-    gap: 2,
-  },
-  themeSegmentBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    borderWidth: 1,
-  },
-  themeSegmentText: { fontSize: 12 },
+  themeSegment:    { flexDirection: 'row', borderWidth: 1, borderRadius: 8, overflow: 'hidden', padding: 3, gap: 2 },
+  themeSegmentBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 9, borderWidth: 1 },
+  themeSegmentText:{ fontSize: 12 },
 
-  // ── Cor de destaque — grade de swatches ───────────────────────────────────
-  accentGrid: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingTop: 4,
-    flexWrap: 'nowrap',
-    justifyContent: 'flex-start',
-  },
+  accentGrid:  { flexDirection: 'row', gap: 12, paddingTop: 4, flexWrap: 'nowrap', justifyContent: 'flex-start' },
   swatchItem:  { alignItems: 'center', gap: 6 },
-  swatchOuter: {
-    width: 46,
-    height: 46,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 3,
-  },
-  swatchInner: {
-    width: 34,
-    height: 34,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  swatchOuter: { width: 46, height: 46, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center', padding: 3 },
+  swatchInner: { width: 34, height: 34, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   swatchLabel: { fontSize: 10, letterSpacing: 0.2 },
 
-  // ── Botão Salvar ──────────────────────────────────────────────────────────
-  saveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 14,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-  },
+  saveBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingVertical: 14, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowRadius: 4 },
   saveBtnText: { fontSize: 14, fontWeight: '600' },
 
-  // ── Linhas de conta ───────────────────────────────────────────────────────
-  accountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    gap: 12,
-  },
-  accountIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  accountInfo:  { flex: 1 },
-  accountTitle: { fontSize: 14, fontWeight: '500', marginBottom: 2 },
-  accountSub:   { fontSize: 12 },
+  accountRow:  { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
+  accountIcon: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  accountInfo: { flex: 1 },
+  accountTitle:{ fontSize: 14, fontWeight: '500', marginBottom: 2 },
+  accountSub:  { fontSize: 12 },
 
-  // ── Rodapé ────────────────────────────────────────────────────────────────
   footer: { fontSize: 11, textAlign: 'center', marginTop: 4, marginBottom: 8, lineHeight: 16 },
 });

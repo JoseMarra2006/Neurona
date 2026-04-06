@@ -176,26 +176,23 @@ export default function ChatIAScreen(_props: ChatIAScreenProps): React.JSX.Eleme
 
   // ── Paleta dinâmica ───────────────────────────────────────────────────────
   const P = {
-    screenBg:      isDark ? '#0d1117' : '#f6f8fa',
-    inputBarBg:    isDark ? '#161b22' : '#ffffff',
-    inputBarBorder:isDark ? '#30363d' : '#d0d7de',
-    textPrimary:   isDark ? '#e6edf3' : '#1f2328',
-    textSecondary: isDark ? '#8b949e' : '#57606a',
-    textMuted:     isDark ? '#6e7681' : '#9198a1',
-    inputBg:       isDark ? '#0d1117' : '#f6f8fa',
-    inputBorder:   isDark ? '#30363d' : '#d0d7de',
-    // Balão do usuário: usa accentColor com leve transparência
-    userBubbleBg:  accentColor,
-    userText:      '#ffffff',
-    // Balão da IA: card sutil
-    aiBubbleBg:    isDark ? '#161b22' : '#ffffff',
-    aiBubbleBdr:   isDark ? '#30363d' : '#d0d7de',
-    aiText:        isDark ? '#e6edf3' : '#1f2328',
-    // Banner de aviso
-    warnBg:        isDark ? '#0c0e00' : '#fefce8',
-    warnBorder:    isDark ? '#713f12' : '#fde68a',
-    warnTitle:     isDark ? '#fbbf24' : '#92400e',
-    warnSub:       isDark ? '#d97706' : '#78350f',
+    screenBg:       isDark ? '#0d1117' : '#f6f8fa',
+    inputBarBg:     isDark ? '#161b22' : '#ffffff',
+    inputBarBorder: isDark ? '#30363d' : '#d0d7de',
+    textPrimary:    isDark ? '#e6edf3' : '#1f2328',
+    textSecondary:  isDark ? '#8b949e' : '#57606a',
+    textMuted:      isDark ? '#6e7681' : '#9198a1',
+    inputBg:        isDark ? '#0d1117' : '#f6f8fa',
+    inputBorder:    isDark ? '#30363d' : '#d0d7de',
+    userBubbleBg:   accentColor,
+    userText:       '#ffffff',
+    aiBubbleBg:     isDark ? '#161b22' : '#ffffff',
+    aiBubbleBdr:    isDark ? '#30363d' : '#d0d7de',
+    aiText:         isDark ? '#e6edf3' : '#1f2328',
+    warnBg:         isDark ? '#0c0e00' : '#fefce8',
+    warnBorder:     isDark ? '#713f12' : '#fde68a',
+    warnTitle:      isDark ? '#fbbf24' : '#92400e',
+    warnSub:        isDark ? '#d97706' : '#78350f',
   };
 
   const scrollToBottom = useCallback((animated: boolean = true) => {
@@ -248,8 +245,8 @@ export default function ChatIAScreen(_props: ChatIAScreenProps): React.JSX.Eleme
     [P, accentColor]
   );
 
-  const keyExtractor  = useCallback((item: DisplayMessage) => item.id, []);
-  const ItemSep       = useCallback(() => <View style={{ height: 4 }} />, []);
+  const keyExtractor = useCallback((item: DisplayMessage) => item.id, []);
+  const ItemSep      = useCallback(() => <View style={{ height: 4 }} />, []);
 
   const ListFooter = useCallback(() => (
     <>
@@ -269,9 +266,14 @@ export default function ChatIAScreen(_props: ChatIAScreenProps): React.JSX.Eleme
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
+      {/*
+       * behavior="padding" funciona corretamente em iOS e Android.
+       * O "height" no Android encolhia o KAV de forma incorreta, fazendo
+       * o teclado cobrir o campo de input da barra de mensagens.
+       */}
       <KeyboardAvoidingView
         style={styles.kvView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
       >
         {/* ── Banner: sem chave da API ───────────────────────── */}
         {!hasApiKey && (
@@ -374,8 +376,8 @@ const styles = StyleSheet.create({
 
   // ── Banner de aviso ──────────────────────────────────────────────────────
   warnBanner: {
-    flexDirection:  'row',
-    alignItems:     'flex-start',
+    flexDirection:     'row',
+    alignItems:        'flex-start',
     borderBottomWidth: 1,
     paddingHorizontal: 16,
     paddingVertical:   11,
@@ -401,27 +403,25 @@ const styles = StyleSheet.create({
 
   // Avatar da FinIA
   avatarBox: {
-    width:           30,
-    height:          30,
-    borderRadius:    8,
-    borderWidth:     1,
-    alignItems:      'center',
-    justifyContent:  'center',
-    marginRight:     8,
-    marginBottom:    2,
-    flexShrink:      0,
+    width:          30,
+    height:         30,
+    borderRadius:   8,
+    borderWidth:    1,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginRight:    8,
+    marginBottom:   2,
+    flexShrink:     0,
   },
 
   // ── Balões ───────────────────────────────────────────────────────────────
   bubble: {
-    maxWidth:         '76%',
-    borderRadius:     10,
+    maxWidth:          '76%',
+    borderRadius:      10,
     paddingHorizontal: 13,
     paddingVertical:   10,
   },
-  bubbleUser: {
-    borderBottomRightRadius: 4,
-  },
+  bubbleUser: { borderBottomRightRadius: 4 },
   bubbleAI: {
     borderWidth:            1,
     borderBottomLeftRadius: 4,
@@ -437,50 +437,44 @@ const styles = StyleSheet.create({
     borderWidth:     1,
   },
   bubbleErrorLabel: {
-    fontSize:     10,
-    fontWeight:   '700',
-    color:        '#dc2626',
-    marginBottom: 4,
+    fontSize:      10,
+    fontWeight:    '700',
+    color:         '#dc2626',
+    marginBottom:  4,
     letterSpacing: 0.5,
   },
-  bubbleText: {
-    fontSize:   14,
-    lineHeight: 21,
-  },
+  bubbleText: { fontSize: 14, lineHeight: 21 },
 
   // ── Indicador de digitação ───────────────────────────────────────────────
-  typingDots: {
-    fontSize:   14,
-    letterSpacing: 4,
-  },
+  typingDots: { fontSize: 14, letterSpacing: 4 },
 
   // ── Barra de input ───────────────────────────────────────────────────────
   inputBar: {
-    flexDirection:   'row',
-    alignItems:      'flex-end',
-    borderTopWidth:  1,
+    flexDirection:     'row',
+    alignItems:        'flex-end',
+    borderTopWidth:    1,
     paddingHorizontal: 14,
     paddingVertical:   10,
-    gap:             10,
+    gap:               10,
   },
   textInput: {
-    flex:         1,
-    minHeight:    44,
-    maxHeight:    130,
-    borderRadius: 8,
-    borderWidth:  1,
+    flex:              1,
+    minHeight:         44,
+    maxHeight:         130,
+    borderRadius:      8,
+    borderWidth:       1,
     paddingHorizontal: 12,
-    paddingTop:    Platform.OS === 'ios' ? 11 : 10,
-    paddingBottom: Platform.OS === 'ios' ? 11 : 10,
-    fontSize:     14,
-    lineHeight:   20,
+    paddingTop:        Platform.OS === 'ios' ? 11 : 10,
+    paddingBottom:     Platform.OS === 'ios' ? 11 : 10,
+    fontSize:          14,
+    lineHeight:        20,
   },
   sendBtn: {
-    width:           40,
-    height:          40,
-    borderRadius:    8,
-    alignItems:      'center',
-    justifyContent:  'center',
-    flexShrink:      0,
+    width:          40,
+    height:         40,
+    borderRadius:   8,
+    alignItems:     'center',
+    justifyContent: 'center',
+    flexShrink:     0,
   },
 });
