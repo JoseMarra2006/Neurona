@@ -16,7 +16,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 
 import type { ChatIAScreenProps } from '../types/navigation';
@@ -171,6 +171,20 @@ export default function ChatIAScreen(_props: ChatIAScreenProps): React.JSX.Eleme
 
   const flatListRef = useRef<FlatList<DisplayMessage>>(null);
 
+  /*
+   * keyboardVerticalOffset: compensa a altura da SafeAreaView no topo (status
+   * bar + header de navegação). Em iOS o KAV precisa desse offset para que o
+   * cálculo de "padding" não sobreponha a barra de input ao teclado.
+   * Em Android com behavior="padding" o offset também ajuda quando a tela tem
+   * header de navegação nativo.
+   *
+   * Usamos useSafeAreaInsets().top para obter o valor real do inset superior
+   * sem hardcode, somando a altura padrão de um header de stack (56 px).
+   */
+  const insets = useSafeAreaInsets();
+  const HEADER_HEIGHT    = 56;
+  const KAV_VERT_OFFSET  = insets.top + HEADER_HEIGHT;
+
   const hasApiKey = groqApiKey.trim().length > 0;
   const canSend   = inputText.trim().length > 0 && !isTyping;
 
@@ -265,15 +279,33 @@ export default function ChatIAScreen(_props: ChatIAScreenProps): React.JSX.Eleme
   ), [isTyping, P, accentColor]);
 
   return (
+    /*
+     * SafeAreaView cobre apenas a borda INFERIOR (home indicator no iOS /
+     * barra de gestos no Android) e o topo já é tratado pelo header do Stack.
+     * Ela fica FORA do KAV propositalmente: o KAV precisa ocupar a área
+     * completa entre o header e a bottom safe area para calcular o padding
+     * corretamente. Se a SAV ficasse por dentro, o KAV herdaria um tamanho
+     * já reduzido e o offset ficaria errado.
+     */
     <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
-      {/*
-       * behavior="padding" funciona corretamente em iOS e Android.
-       * O "height" no Android encolhia o KAV de forma incorreta, fazendo
-       * o teclado cobrir o campo de input da barra de mensagens.
-       */}
       <KeyboardAvoidingView
         style={styles.kvView}
-        behavior="padding"
+        /*
+         * "padding" funciona em iOS e Android.
+         * Em Android, "height" encolhe o KAV de baixo para cima, o que
+         * muitas vezes "esconde" o input em vez de empurrá-lo.
+         * "padding" adiciona padding na base do KAV, empurrando o conteúdo
+         * (FlatList + barra) para cima — comportamento correto nos dois SOs.
+         */
+        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        /*
+         * keyboardVerticalOffset: diz ao KAV o quanto de espaço acima dele
+         * já está ocupado (status bar + header). Sem isso, em iOS, o KAV
+         * superestima o padding e a barra de input sobe além do necessário.
+         * Em Android o valor raramente impacta com behavior="padding", mas
+         * mantê-lo correto não causa efeitos colaterais.
+         */
+        keyboardVerticalOffset={KAV_VERT_OFFSET}
       >
         {/* ── Banner: sem chave da API ───────────────────────── */}
         {!hasApiKey && (
@@ -309,6 +341,16 @@ export default function ChatIAScreen(_props: ChatIAScreenProps): React.JSX.Eleme
           onContentSizeChange={() => scrollToBottom(true)}
           onLayout={() => scrollToBottom(false)}
           maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 10 }}
+          /*
+           * keyboardDismissMode="interactive" permite arrastar a lista para
+           * baixo e fechar o teclado progressivamente (comportamento nativo
+           * de apps de mensagens).
+           * keyboardShouldPersistTaps="handled" garante que toques em botões
+           * dentro da lista funcionem mesmo com o teclado aberto, sem fechá-lo
+           * inesperadamente quando o toque não é tratado.
+           */
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
         />
 
         {/* ── Barra de input ─────────────────────────────────── */}

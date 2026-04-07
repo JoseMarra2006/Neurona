@@ -36,6 +36,17 @@ export interface MonthlySummary {
   surplus: number;
 }
 
+/**
+ * Campos que podem ser atualizados em uma transação existente.
+ * Todos são opcionais: apenas os informados serão persistidos.
+ */
+export interface UpdateTransactionData {
+  title?:  string;
+  amount?: number;
+  type?:   TransactionType;
+  date?:   string;
+}
+
 interface UseTransactionsReturn {
   /** Lista completa de transações, mais recente primeiro */
   transactions: Transaction[];
@@ -51,6 +62,7 @@ interface UseTransactionsReturn {
   error: string | null;
   addTransaction: (data: NewTransaction) => Promise<number>;
   deleteTransaction: (id: number) => Promise<void>;
+  updateTransaction: (id: number, data: UpdateTransactionData) => Promise<void>;
   getTransactionsByType: (type: TransactionType) => Promise<Transaction[]>;
   getFinancialSummary: () => Promise<FinancialSummary>;
   refreshTransactions: () => Promise<void>;
@@ -189,6 +201,61 @@ export function useTransactions(): UseTransactionsReturn {
     [db, loadTransactions, loadMonthlyData]
   );
 
+  // ── updateTransaction ───────────────────────────────────────────────────
+  /**
+   * Atualiza os campos fornecidos de uma transação existente.
+   *
+   * Apenas as colunas presentes em `data` são incluídas no SET da query,
+   * evitando sobrescrever campos não alterados pelo usuário.
+   * Após a persistência, recarrega tanto a lista completa quanto os dados
+   * mensais para manter o Dashboard e a tela de Relatórios sincronizados.
+   */
+  const updateTransaction = useCallback(
+    async (id: number, data: UpdateTransactionData): Promise<void> => {
+      try {
+        // Monta SET dinâmico apenas com os campos fornecidos
+        const setClauses: string[] = [];
+        const params: (string | number)[] = [];
+
+        if (data.title !== undefined) {
+          setClauses.push('title = ?');
+          params.push(data.title);
+        }
+        if (data.amount !== undefined) {
+          setClauses.push('amount = ?');
+          params.push(data.amount);
+        }
+        if (data.type !== undefined) {
+          setClauses.push('type = ?');
+          params.push(data.type);
+        }
+        if (data.date !== undefined) {
+          setClauses.push('date = ?');
+          params.push(data.date);
+        }
+
+        if (setClauses.length === 0) {
+          // Nada a atualizar: retorna sem tocar no banco
+          return;
+        }
+
+        params.push(id);
+
+        await db.runAsync(
+          `UPDATE transactions SET ${setClauses.join(', ')} WHERE id = ?`,
+          ...params
+        );
+
+        await Promise.all([loadTransactions(), loadMonthlyData()]);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Erro ao atualizar transação';
+        console.error('[useTransactions] updateTransaction:', message);
+        throw new Error(message);
+      }
+    },
+    [db, loadTransactions, loadMonthlyData]
+  );
+
   // ── getTransactionsByType ───────────────────────────────────────────────
   const getTransactionsByType = useCallback(
     async (type: TransactionType): Promise<Transaction[]> => {
@@ -228,6 +295,7 @@ export function useTransactions(): UseTransactionsReturn {
     error,
     addTransaction,
     deleteTransaction,
+    updateTransaction,
     getTransactionsByType,
     getFinancialSummary,
     refreshTransactions: async () => {

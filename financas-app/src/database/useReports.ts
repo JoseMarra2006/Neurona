@@ -13,6 +13,36 @@ export interface AvailableYear {
   count: number;
 }
 
+/**
+ * Totais de Entradas e Gastos agrupados por mês, para o gráfico de barras
+ * da `MonthsScreen`.
+ *
+ * - `month`: número do mês (1 = Janeiro … 12 = Dezembro)
+ * - `income`: soma das entradas do mês (0 se não houver)
+ * - `expense`: soma dos gastos do mês (0 se não houver)
+ */
+export interface MonthlyBarData {
+  month:   number;
+  income:  number;
+  expense: number;
+}
+
+/**
+ * Totais financeiros de um mês específico, formatados para o gráfico donut
+ * da `TransacoesScreen`.
+ *
+ * - `income`:  soma das entradas
+ * - `expense`: soma dos gastos
+ * - `savings`: soma das economias
+ * - `surplus`: income - expense - savings (pode ser negativo)
+ */
+export interface MonthDonutData {
+  income:  number;
+  expense: number;
+  savings: number;
+  surplus: number;
+}
+
 interface UseReportsReturn {
   /**
    * Lista de anos em que existem transações no banco.
@@ -46,6 +76,26 @@ interface UseReportsReturn {
    * @param month Mês de 1 a 12
    */
   loadMonthTransactions: (year: number, month: number) => Promise<void>;
+
+  /**
+   * Retorna os totais de Entradas e Gastos agrupados por mês para um
+   * ano específico. Usado pelo gráfico de barras da `MonthsScreen`.
+   *
+   * Retorna sempre 12 posições (meses 1–12). Meses sem dados têm income
+   * e expense iguais a 0.
+   *
+   * @param year Ano inteiro (ex: 2025)
+   */
+  loadYearlyBarData: (year: number) => Promise<MonthlyBarData[]>;
+
+  /**
+   * Retorna os totais financeiros de um mês específico para o gráfico
+   * donut da `TransacoesScreen`.
+   *
+   * @param year  Ano inteiro (ex: 2025)
+   * @param month Mês de 1 a 12
+   */
+  loadMonthDonutData: (year: number, month: number) => Promise<MonthDonutData>;
 }
 
 // ─── Utilitário: formata "YYYY-MM" para a cláusula LIKE ──────────────────────
@@ -71,20 +121,6 @@ function buildMonthPrefix(year: number, month: number): string {
  * mantendo responsabilidades bem definidas e evitando re-renders desnecessários.
  *
  * **Requisito:** deve ser chamado dentro de um componente filho do `<SQLiteProvider>`.
- *
- * Exemplo — tela de anos:
- * ```tsx
- * const { availableYears, isLoadingYears } = useReports();
- * ```
- *
- * Exemplo — tela de transações mensais:
- * ```tsx
- * const { monthTransactions, loadMonthTransactions, isLoadingMonth } = useReports();
- *
- * useEffect(() => {
- *   loadMonthTransactions(2025, 6);
- * }, []);
- * ```
  */
 export function useReports(): UseReportsReturn {
   const db = useSQLiteContext();
@@ -108,10 +144,6 @@ export function useReports(): UseReportsReturn {
    *   FROM transactions
    *   GROUP BY year
    *   ORDER BY year DESC
-   *
-   * `strftime('%Y', date)` extrai o ano de qualquer string ISO 8601 armazenada
-   * na coluna `date` (ex: "2025-06-15T10:30:00.000Z" → "2025").
-   * O CAST garante que o valor seja número inteiro e não string.
    */
   const loadAvailableYears = useCallback(async (): Promise<void> => {
     try {
@@ -137,12 +169,11 @@ export function useReports(): UseReportsReturn {
     }
   }, [db]);
 
-  // Carrega os anos automaticamente ao montar o componente
   useEffect(() => {
     loadAvailableYears();
   }, [loadAvailableYears]);
 
-  // ── getTransactionsByMonthAndYear ───────────────────────────────────────
+  // ── loadMonthTransactions ───────────────────────────────────────────────
   /**
    * Busca todas as transações de um mês e ano específicos, ordenadas
    * da mais recente para a mais antiga.
@@ -152,12 +183,6 @@ export function useReports(): UseReportsReturn {
    *   FROM transactions
    *   WHERE date LIKE 'YYYY-MM%'
    *   ORDER BY date DESC
-   *
-   * O filtro `LIKE 'YYYY-MM%'` é eficiente porque a coluna `date` está indexada
-   * e o padrão tem prefixo fixo (sem wildcard à esquerda).
-   *
-   * @param year  Ano inteiro (ex: 2025)
-   * @param month Mês de 1 a 12 (Janeiro = 1, Dezembro = 12)
    */
   const loadMonthTransactions = useCallback(
     async (year: number, month: number): Promise<void> => {
@@ -187,13 +212,119 @@ export function useReports(): UseReportsReturn {
     [db]
   );
 
+  // ── loadYearlyBarData ───────────────────────────────────────────────────
+  /**
+   * Retorna os totais de Entradas e Gastos de cada mês de um determinado
+   * ano, formatados para o gráfico de barras agrupadas da `MonthsScreen`.
+   *
+   * SQL:
+   *   SELECT
+   *     CAST(strftime('%m', date) AS INTEGER) AS month,
+   *     type,
+   *     SUM(amount) AS total
+   *   FROM transactions
+   *   WHERE date LIKE 'YYYY%'
+   *   GROUP BY month, type
+   *   ORDER BY month ASC
+   *
+   * Os resultados são normalizados para um array de 12 posições (uma por mês),
+   * garantindo que meses sem dados apareçam com valor 0.
+   */
+  const loadYearlyBarData = useCallback(
+    async (year: number): Promise<MonthlyBarData[]> => {
+      try {
+        const rows = await db.getAllAsync<{ month: number; type: string; total: number }>(
+          `SELECT
+             CAST(strftime('%m', date) AS INTEGER) AS month,
+             type,
+             SUM(amount) AS total
+           FROM transactions
+           WHERE date LIKE ?
+             AND type IN ('entrada', 'gasto')
+           GROUP BY month, type
+           ORDER BY month ASC`,
+          `${year}%`
+        );
+
+        // Inicializa os 12 meses com 0
+        const result: MonthlyBarData[] = Array.from({ length: 12 }, (_, i) => ({
+          month:   i + 1,
+          income:  0,
+          expense: 0,
+        }));
+
+        // Preenche com os valores retornados do banco
+        for (const row of rows) {
+          const idx = row.month - 1;
+          if (idx < 0 || idx > 11) continue;
+          if (row.type === 'entrada') {
+            result[idx]!.income = row.total;
+          } else if (row.type === 'gasto') {
+            result[idx]!.expense = row.total;
+          }
+        }
+
+        return result;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Erro ao carregar dados do gráfico anual';
+        console.error('[useReports] loadYearlyBarData:', message);
+        return Array.from({ length: 12 }, (_, i) => ({ month: i + 1, income: 0, expense: 0 }));
+      }
+    },
+    [db]
+  );
+
+  // ── loadMonthDonutData ──────────────────────────────────────────────────
+  /**
+   * Retorna os totais financeiros de um mês específico para o gráfico
+   * donut da `TransacoesScreen`.
+   *
+   * SQL:
+   *   SELECT type, SUM(amount) AS total
+   *   FROM transactions
+   *   WHERE date LIKE 'YYYY-MM%'
+   *   GROUP BY type
+   *
+   * As sobras são calculadas como: entradas - gastos - economias.
+   * Valor negativo de sobras é possível e deve ser tratado na UI.
+   */
+  const loadMonthDonutData = useCallback(
+    async (year: number, month: number): Promise<MonthDonutData> => {
+      try {
+        const monthPrefix = buildMonthPrefix(year, month);
+
+        const rows = await db.getAllAsync<{ type: string; total: number }>(
+          `SELECT type, SUM(amount) AS total
+           FROM transactions
+           WHERE date LIKE ?
+           GROUP BY type`,
+          `${monthPrefix}%`
+        );
+
+        const income  = rows.find((r) => r.type === 'entrada')?.total  ?? 0;
+        const expense = rows.find((r) => r.type === 'gasto')?.total    ?? 0;
+        const savings = rows.find((r) => r.type === 'economia')?.total ?? 0;
+        const surplus = income - expense - savings;
+
+        return { income, expense, savings, surplus };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Erro ao carregar dados do gráfico mensal';
+        console.error('[useReports] loadMonthDonutData:', message);
+        return { income: 0, expense: 0, savings: 0, surplus: 0 };
+      }
+    },
+    [db]
+  );
+
   return {
     availableYears,
     isLoadingYears,
     monthTransactions,
     isLoadingMonth,
     error,
-    refreshYears: loadAvailableYears,
+    refreshYears:      loadAvailableYears,
     loadMonthTransactions,
+    loadYearlyBarData,
+    loadMonthDonutData,
   };
 }
