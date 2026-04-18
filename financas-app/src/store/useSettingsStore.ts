@@ -21,6 +21,12 @@ interface SettingsState {
   theme: Theme;
   /** Cor de destaque em hex (ex.: "#2f78f0") */
   accentColor: string;
+  /**
+   * Modo de privacidade: quando `true`, valores financeiros sensíveis são
+   * ocultados por uma máscara (ex.: "R$ ••••••") em todo o app.
+   * Inicia como `true` por padrão para proteger dados ao abrir o app.
+   */
+  isPrivacyActive: boolean;
 }
 
 interface SettingsActions {
@@ -29,6 +35,8 @@ interface SettingsActions {
   setGroqApiKey: (key: string) => void;
   setTheme: (theme: Theme) => void;
   setAccentColor: (color: string) => void;
+  /** Inverte o estado de privacidade (ocultar ↔ exibir valores) */
+  togglePrivacy: () => void;
   /** Reseta todas as configurações para os valores padrão */
   resetSettings: () => void;
 }
@@ -41,6 +49,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   groqApiKey: '',
   theme: 'light',
   accentColor: '#2f78f0',
+  isPrivacyActive: true,
 };
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -50,8 +59,8 @@ const DEFAULT_SETTINGS: SettingsState = {
  *
  * Uso em qualquer componente (sem necessidade de Provider):
  * ```tsx
- * const userName = useSettingsStore((s) => s.userName);
- * const setUserName = useSettingsStore((s) => s.setUserName);
+ * const isPrivacyActive = useSettingsStore((s) => s.isPrivacyActive);
+ * const togglePrivacy   = useSettingsStore((s) => s.togglePrivacy);
  * ```
  *
  * Todas as alterações são gravadas automaticamente no AsyncStorage
@@ -103,6 +112,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()(
 
       setAccentColor: (color: string) => {
         set({ accentColor: color });
+      },
+
+      togglePrivacy: () => {
+        set((state) => ({ isPrivacyActive: !state.isPrivacyActive }));
       },
 
       resetSettings: () => {

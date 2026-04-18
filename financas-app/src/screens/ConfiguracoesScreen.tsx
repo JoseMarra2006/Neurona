@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 
 import type { ConfiguracoesScreenProps } from '../types/navigation';
+import { useTransactions } from '../database/useTransactions';
 import { useSettingsStore } from '../store/useSettingsStore';
 import type { Theme } from '../store/useSettingsStore';
 import { useAuth } from '../contexts/AuthContext';
@@ -87,6 +88,7 @@ export default function ConfiguracoesScreen(
   _props: ConfiguracoesScreenProps,
 ): React.JSX.Element {
   const { accentColor, isDark } = useAppTheme();
+  const { verifyAndCreateMonthlyIncome } = useTransactions();
 
   // ── Zustand ───────────────────────────────────────────────────────────────
   const userName       = useSettingsStore((s) => s.userName);
@@ -125,12 +127,15 @@ export default function ConfiguracoesScreen(
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleSave = useCallback((): void => {
     setUserName(editName.trim());
-    // parseMoneyMask extrai o número de "R$ 1.234,56" → 1234.56
-    setMonthlyIncome(parseMoneyMask(editIncome));
+    const parsedIncome = parseMoneyMask(editIncome);
+    setMonthlyIncome(parsedIncome);
     setGroqApiKey(editApiKey.trim());
+    if (parsedIncome > 0) {
+      verifyAndCreateMonthlyIncome(parsedIncome);
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
-  }, [editName, editIncome, editApiKey, setUserName, setMonthlyIncome, setGroqApiKey]);
+  }, [editName, editIncome, editApiKey, setUserName, setMonthlyIncome, setGroqApiKey, verifyAndCreateMonthlyIncome]);
 
   const handleReset = useCallback((): void => {
     Alert.alert(

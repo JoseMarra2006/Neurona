@@ -100,12 +100,25 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
 
     const initialize = async (): Promise<void> => {
       try {
-        const { data } = await supabase.auth.getSession();
+        // Failsafe: se getSession ficar suspenso num arranque a frio, o timeout
+        // de 3 s resolve com session null para libertar o ecrã de splash.
+        const timeoutPromise = new Promise<{ data: { session: null } }>(
+          (resolve) => setTimeout(() => resolve({ data: { session: null } }), 3000)
+        );
+
+        const { data } = await Promise.race([
+          supabase.auth.getSession(),
+          timeoutPromise,
+        ]);
+
         if (isMounted) {
           await applySession(data.session);
         }
       } catch (e) {
         console.error('[AuthContext] initialize error:', e);
+        if (isMounted) {
+          await applySession(null);
+        }
       } finally {
         if (isMounted) {
           setIsLoading(false);

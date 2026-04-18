@@ -1,6 +1,6 @@
 // caminho: src/screens/reports/TransacoesScreen.tsx
 import React, { useEffect, useCallback, useState, useMemo } from 'react';
-import { View, Text, FlatList, ActivityIndicator, StyleSheet, RefreshControl, TouchableOpacity, TextInput, ScrollView, Keyboard, TouchableWithoutFeedback, Platform, Modal, Alert, KeyboardAvoidingView, Pressable, useWindowDimensions } from 'react-native';
+import { View, Text, FlatList, ActivityIndicator, StyleSheet, RefreshControl, TouchableOpacity, TextInput, ScrollView, Keyboard, Platform, Modal, Alert, KeyboardAvoidingView, Pressable, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { PieChart } from 'react-native-gifted-charts';
@@ -393,7 +393,7 @@ function ActionSheetModal({ visible, transaction, isDark, accentColor, onEdit, o
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onCancel}>
       <Pressable style={[sheetStyles.overlay, { backgroundColor: overlayBg }]} onPress={onCancel}>
-        <Pressable style={[sheetStyles.sheet, { backgroundColor: sheetBg, paddingBottom: insets.bottom + 8 }]} onPress={(e) => e.stopPropagation()}>
+        <Pressable style={[sheetStyles.sheet, { backgroundColor: sheetBg, paddingBottom: insets.bottom + 8 }]} onPress={() => {}}>
           <View style={[sheetStyles.handle, { backgroundColor: isDark ? '#30363d' : '#d0d7de' }]} />
           
           <View style={[sheetStyles.sheetHeader, { borderBottomColor: divider }]}>
@@ -786,12 +786,11 @@ export default function TransacoesScreen({ route }: ReportsTransacoesScreenProps
   }
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
-        <ActionSheetModal visible={actionSheetVisible} transaction={actionTarget} isDark={isDark} accentColor={accentColor} onEdit={handleActionEdit} onDelete={handleActionDelete} onCancel={handleActionCancel} />
-        <EditModal visible={editModalVisible} transaction={actionTarget} isDark={isDark} accentColor={accentColor} isSaving={isSaving} onSave={handleSaveEdit} onCancel={handleCancelEdit} />
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: P.screenBg }]} edges={['bottom']}>
+      <ActionSheetModal visible={actionSheetVisible} transaction={actionTarget} isDark={isDark} accentColor={accentColor} onEdit={handleActionEdit} onDelete={handleActionDelete} onCancel={handleActionCancel} />
+      <EditModal visible={editModalVisible} transaction={actionTarget} isDark={isDark} accentColor={accentColor} isSaving={isSaving} onSave={handleSaveEdit} onCancel={handleCancelEdit} />
 
-        <FlatList
+      <FlatList
           data={filteredTransactions}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
@@ -857,7 +856,7 @@ export default function TransacoesScreen({ route }: ReportsTransacoesScreenProps
 
               <View style={[styles.searchBar, { backgroundColor: P.inputBg, borderColor: P.inputBorder }]}>
                 <Feather name="search" size={14} color={P.textMuted} style={styles.searchIcon} />
-                <TextInput style={[styles.searchInput, { color: P.textPrimary }]} placeholder="Buscar por título…" placeholderTextColor={P.textMuted} value={searchText} onChangeText={setSearchText} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={Keyboard.dismiss} clearButtonMode="never" />
+                <TextInput style={[styles.searchInput, { color: P.textPrimary }]} placeholder="Buscar por título…" placeholderTextColor={P.textMuted} value={searchText} onChangeText={setSearchText} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => Keyboard.dismiss()} clearButtonMode="never" />
                 {searchText.length > 0 && <TouchableOpacity onPress={() => setSearchText('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.7}><Feather name="x-circle" size={15} color={P.textMuted} /></TouchableOpacity>}
               </View>
 
@@ -896,8 +895,7 @@ export default function TransacoesScreen({ route }: ReportsTransacoesScreenProps
             ) : null
           }
         />
-      </SafeAreaView>
-    </TouchableWithoutFeedback>
+    </SafeAreaView>
   );
 }
 

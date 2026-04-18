@@ -1,5 +1,6 @@
 // caminho: src/screens/DashboardScreen.tsx
 import React, { useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -94,6 +95,34 @@ function parseMoneyMask(value: string): number {
   return isNaN(n) ? 0 : n;
 }
 
+// ─── Máscara de privacidade ───────────────────────────────────────────────────
+//
+// Valor fixo "R$ ••••••" — comprimento estável para evitar reflow de layout.
+// Os bullets (•) foram escolhidos por serem reconhecíveis como dado oculto
+// sem remeter a asteriscos de senha, mantendo o tom de plataforma financeira.
+
+const PRIVACY_MASK = 'R$ ••••••';
+
+/**
+ * Retorna o valor formatado ou a máscara de privacidade.
+ * Recebe o valor numérico bruto — a decisão de exibir ou mascarar
+ * é centralizada aqui para consistência em todo o componente.
+ */
+function displayValue(value: number, isPrivacyActive: boolean): string {
+  return isPrivacyActive ? PRIVACY_MASK : formatCurrency(value);
+}
+
+/**
+ * Versão com sinal para o card de Sobras (pode ser negativo).
+ * Quando privacidade está ativa, retorna apenas a máscara sem sinal,
+ * pois revelar o sinal poderia indicar ao observador se o mês foi
+ * positivo ou negativo.
+ */
+function displaySurplus(value: number, isPrivacyActive: boolean): string {
+  if (isPrivacyActive) return PRIVACY_MASK;
+  return `${value < 0 ? '−' : ''}${formatCurrency(Math.abs(value))}`;
+}
+
 // ─── Tipo do formulário ───────────────────────────────────────────────────────
 
 interface TransactionForm {
@@ -131,10 +160,24 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     monthlySummary,
     isLoadingMonthly,
     addTransaction,
+    verifyAndCreateMonthlyIncome,
+    refreshMonthlyData,
   } = useTransactions();
 
   const { profile } = useAuth();
-  const settingsUserName = useSettingsStore((s) => s.userName);
+  const settingsUserName  = useSettingsStore((s) => s.userName);
+  const monthlyIncome     = useSettingsStore((s) => s.monthlyIncome);
+  const isPrivacyActive   = useSettingsStore((s) => s.isPrivacyActive);
+  const togglePrivacy     = useSettingsStore((s) => s.togglePrivacy);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshMonthlyData();
+      if (monthlyIncome > 0) {
+        verifyAndCreateMonthlyIncome(monthlyIncome);
+      }
+    }, [monthlyIncome, verifyAndCreateMonthlyIncome, refreshMonthlyData])
+  );
 
   const displayName = settingsUserName.trim().length > 0
     ? settingsUserName.trim()
@@ -169,6 +212,10 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     periodBorder:     isDark ? '#30363d' : '#d0d7de',
     periodText:       isDark ? '#8b949e' : '#57606a',
     periodDot:        isDark ? '#30363d' : '#d0d7de',
+    // Cor do ícone do olho: levemente mais visível quando privacidade está ativa
+    eyeColor:         isPrivacyActive
+      ? (isDark ? '#e6edf3' : '#1f2328')
+      : (isDark ? '#6e7681' : '#9198a1'),
   };
 
   const SEM = getSemantic(isDark);
@@ -225,6 +272,10 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
   }, [navigation]);
 
   // ── Render item da FlatList ───────────────────────────────────────────────
+  //
+  // isPrivacyActive é capturado no closure de renderItem. Como está listado
+  // nas dependências do useCallback, o React garante que a FlatList receba
+  // a versão atualizada sempre que o estado de privacidade mudar.
   const renderItem = useCallback(
     ({ item, index }: { item: (typeof monthlyTransactions)[0]; index: number }) => {
       const isLast = index === monthlyTransactions.length - 1;
@@ -244,6 +295,12 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
         badgeBg = SEM.savings.bg; badgeBorder = SEM.savings.border; label = 'Economia';
       }
 
+      // Quando privacidade ativa: exibe a máscara sem sinal para não vazar
+      // informação sobre a magnitude ou direção da transação.
+      const amountText = isPrivacyActive
+        ? PRIVACY_MASK
+        : `${signal} ${formatCurrency(item.amount)}`;
+
       return (
         <View style={[styles.txRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: P.divider }]}>
           <View style={[styles.txDot, { backgroundColor: dotColor }]} />
@@ -252,7 +309,7 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
             <Text style={[styles.txDate, { color: P.textMuted }]}>{formatDate(item.date)}</Text>
           </View>
           <View style={styles.txRight}>
-            <Text style={[styles.txAmount, { color: amountColor }]}>{signal} {formatCurrency(item.amount)}</Text>
+            <Text style={[styles.txAmount, { color: amountColor }]}>{amountText}</Text>
             <View style={[styles.txBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
               <Text style={[styles.txBadgeText, { color: dotColor }]}>{label}</Text>
             </View>
@@ -260,7 +317,10 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
         </View>
       );
     },
-    [isDark, P, SEM, monthlyTransactions.length]
+    // isPrivacyActive adicionado às dependências para que o renderItem seja
+    // recriado quando o modo de privacidade muda, forçando a FlatList a
+    // re-renderizar os itens com o valor correto.
+    [isDark, P, SEM, monthlyTransactions.length, isPrivacyActive]
   );
 
   const keyExtractor = useCallback(
@@ -281,8 +341,32 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
               {getCurrentMonthName()} {new Date().getFullYear()}
             </Text>
           </View>
-          <View style={[styles.greetBadge, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
-            <Feather name="dollar-sign" size={20} color={accentColor} />
+
+          {/*
+           * Header direito: botão de privacidade (olho) + badge Neurona.
+           *
+           * O TouchableOpacity do olho usa hitSlop generoso (10 px em todos os
+           * lados) para facilitar o toque sem aumentar a área visual do botão.
+           * O ícone alterna entre "eye-off" (privacidade ativa) e "eye"
+           * (valores visíveis) para oferecer feedback claro do estado atual.
+           */}
+          <View style={styles.greetActions}>
+            <TouchableOpacity
+              onPress={togglePrivacy}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.6}
+              style={styles.privacyBtn}
+            >
+              <Feather
+                name={isPrivacyActive ? 'eye-off' : 'eye'}
+                size={18}
+                color={P.eyeColor}
+              />
+            </TouchableOpacity>
+
+            <View style={[styles.greetBadge, { backgroundColor: P.badgeBg, borderColor: P.badgeBorder }]}>
+              <Feather name="dollar-sign" size={20} color={accentColor} />
+            </View>
           </View>
         </View>
 
@@ -315,43 +399,53 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
             </View>
 
             <View style={styles.cardsGrid}>
+              {/* Card: Entradas */}
               <View style={[styles.card, { backgroundColor: SEM.income.bg, borderColor: SEM.income.border }]}>
                 <View style={styles.cardHeader}>
                   <Feather name="trending-up" size={14} color={SEM.income.text} />
                   <Text style={[styles.cardLabel, { color: SEM.income.text }]}>ENTRADAS</Text>
                 </View>
                 <Text style={[styles.cardValue, { color: SEM.income.text }]}>
-                  {formatCurrency(monthlySummary.totalIncome)}
+                  {displayValue(monthlySummary.totalIncome, isPrivacyActive)}
                 </Text>
               </View>
 
+              {/* Card: Gastos */}
               <View style={[styles.card, { backgroundColor: SEM.expense.bg, borderColor: SEM.expense.border }]}>
                 <View style={styles.cardHeader}>
                   <Feather name="trending-down" size={14} color={SEM.expense.text} />
                   <Text style={[styles.cardLabel, { color: SEM.expense.text }]}>GASTOS</Text>
                 </View>
                 <Text style={[styles.cardValue, { color: SEM.expense.text }]}>
-                  {formatCurrency(monthlySummary.totalExpenses)}
+                  {displayValue(monthlySummary.totalExpenses, isPrivacyActive)}
                 </Text>
               </View>
 
+              {/* Card: Sobras — cor muda conforme positivo/negativo, mas
+                  somente quando os valores estão visíveis. Com privacidade
+                  ativa, usa a cor padrão de surplus para não vazar informação. */}
               <View style={[styles.card, { backgroundColor: SEM.surplus.bg, borderColor: SEM.surplus.border }]}>
                 <View style={styles.cardHeader}>
                   <Feather name="activity" size={14} color={SEM.surplus.text} />
                   <Text style={[styles.cardLabel, { color: SEM.surplus.text }]}>SOBRAS</Text>
                 </View>
-                <Text style={[styles.cardValue, { color: monthlySummary.surplus >= 0 ? SEM.surplus.text : SEM.expense.text }]}>
-                  {monthlySummary.surplus < 0 ? '−' : ''}{formatCurrency(Math.abs(monthlySummary.surplus))}
+                <Text style={[styles.cardValue, {
+                  color: isPrivacyActive
+                    ? SEM.surplus.text
+                    : (monthlySummary.surplus >= 0 ? SEM.surplus.text : SEM.expense.text),
+                }]}>
+                  {displaySurplus(monthlySummary.surplus, isPrivacyActive)}
                 </Text>
               </View>
 
+              {/* Card: Economias */}
               <View style={[styles.card, { backgroundColor: SEM.savings.bg, borderColor: SEM.savings.border }]}>
                 <View style={styles.cardHeader}>
                   <Feather name="shield" size={14} color={SEM.savings.text} />
                   <Text style={[styles.cardLabel, { color: SEM.savings.text }]}>ECONOMIAS</Text>
                 </View>
                 <Text style={[styles.cardValue, { color: SEM.savings.text }]}>
-                  {formatCurrency(monthlySummary.totalSavings)}
+                  {displayValue(monthlySummary.totalSavings, isPrivacyActive)}
                 </Text>
               </View>
             </View>
@@ -541,10 +635,32 @@ const styles = StyleSheet.create({
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
 
-  greetRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
-  greetName:  { fontSize: 20, fontWeight: '700', letterSpacing: -0.3, marginBottom: 2 },
-  greetSub:   { fontSize: 13 },
-  greetBadge: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  greetRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  greetName:   { fontSize: 20, fontWeight: '700', letterSpacing: -0.3, marginBottom: 2 },
+  greetSub:    { fontSize: 13 },
+  greetBadge:  { width: 44, height: 44, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+
+  /*
+   * greetActions: agrupa o botão de privacidade e o badge Neurona lado a lado.
+   * gap de 10 px mantém os dois elementos bem próximos sem se tocarem.
+   */
+  greetActions: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+  },
+
+  /*
+   * privacyBtn: área de toque do ícone olho, sem fundo nem borda para
+   * manter o visual minimalista. O hitSlop no TouchableOpacity garante
+   * área de toque adequada sem precisar aumentar o padding visual.
+   */
+  privacyBtn: {
+    width:           32,
+    height:          32,
+    alignItems:      'center',
+    justifyContent:  'center',
+  },
 
   addBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 8, paddingVertical: 13, marginBottom: 28, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 3 },
   addBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },

@@ -77,6 +77,15 @@ interface UseTransactionsReturn {
   getFinancialSummary: () => Promise<FinancialSummary>;
   refreshTransactions: () => Promise<void>;
   refreshMonthlyData: () => Promise<void>;
+  /**
+   * Verifica se já existe uma transação de "Renda Mensal" (ou "Salário") no
+   * mês corrente e, caso não exista, cria-a automaticamente como entrada.
+   *
+   * Regra de idempotência: se já houver qualquer transação com title
+   * "Renda Mensal" ou "Salário" no mês/ano atual, a função não faz nada —
+   * preservando edições manuais feitas pelo usuário na tela de relatórios.
+   */
+  verifyAndCreateMonthlyIncome: (incomeValue: number) => Promise<void>;
 }
 
 // ─── Valor inicial padrão ─────────────────────────────────────────────────────
@@ -294,6 +303,36 @@ export function useTransactions(): UseTransactionsReturn {
     [db]
   );
 
+  // ── verifyAndCreateMonthlyIncome ────────────────────────────────────────
+  const verifyAndCreateMonthlyIncome = useCallback(
+    async (incomeValue: number): Promise<void> => {
+      if (incomeValue <= 0) return;
+      try {
+        const monthPrefix = getCurrentMonthPrefix();
+        const row = await db.getFirstAsync<{ count: number }>(
+          `SELECT COUNT(*) AS count
+           FROM transactions
+           WHERE date LIKE ? AND type = 'entrada'
+             AND (title = 'Renda Mensal' OR title = 'Salário')`,
+          `${monthPrefix}%`
+        );
+        if ((row?.count ?? 0) === 0) {
+          await db.runAsync(
+            `INSERT INTO transactions (title, amount, type, date) VALUES (?, ?, ?, ?)`,
+            'Renda Mensal',
+            incomeValue,
+            'entrada',
+            new Date().toISOString()
+          );
+          await loadMonthlyData();
+        }
+      } catch (e) {
+        console.error('[useTransactions] verifyAndCreateMonthlyIncome:', e instanceof Error ? e.message : e);
+      }
+    },
+    [db, loadMonthlyData]
+  );
+
   // ── getFinancialSummary ─────────────────────────────────────────────────
   /**
    * Resumo financeiro GLOBAL (todos os meses / histórico completo).
@@ -336,5 +375,6 @@ export function useTransactions(): UseTransactionsReturn {
       await Promise.all([loadTransactions(), loadMonthlyData()]);
     },
     refreshMonthlyData: loadMonthlyData,
+    verifyAndCreateMonthlyIncome,
   };
 }
