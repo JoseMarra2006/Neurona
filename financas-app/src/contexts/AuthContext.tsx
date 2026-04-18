@@ -7,8 +7,18 @@ import React, {
   useCallback,
   type ReactNode,
 } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session, User, AuthError } from '@supabase/supabase-js';
 import { supabase, type UserProfile } from '../services/supabase';
+
+// ─── Constante de cache ───────────────────────────────────────────────────────
+
+const AUTH_CACHE_KEY = '@neurona_auth_cache';
+
+interface AuthCache {
+  session: Session;
+  profile: UserProfile | null;
+}
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +74,10 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
   const [error, setError] = useState<string | null>(null);
 
   // ── Busca perfil do banco ────────────────────────────────────────────────
-  const fetchProfile = useCallback(async (userId: string): Promise<void> => {
+  //
+  // Retorna o dado para que applySession possa persistir o cache completo
+  // (session + profile) de forma atómica, sem uma segunda leitura de estado.
+  const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     const { data, error: profileError } = await supabase
       .from('profiles')
       .select('id, email, name, created_at, updated_at')
@@ -73,63 +86,101 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
 
     if (profileError) {
       console.warn('[AuthContext] fetchProfile error:', profileError.message);
-      return;
+      return null;
     }
 
-    setProfile(data as UserProfile);
+    const profileData = data as UserProfile;
+    setProfile(profileData);
+    return profileData;
   }, []);
 
-  // ── Aplica sessão ao estado interno ─────────────────────────────────────
+  // ── Aplica sessão ao estado interno e sincroniza o cache local ───────────
+  //
+  // Cache-write: chamado após qualquer login/refresh bem-sucedido — persiste
+  // session + profile no AsyncStorage para viabilizar o boot instantâneo.
+  //
+  // Cache-clear: chamado no logout — remove a entrada para que o próximo
+  // arranque vá direto ao ecrã de login sem exibir dados obsoletos.
   const applySession = useCallback(
     async (newSession: Session | null): Promise<void> => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
 
       if (newSession?.user) {
-        await fetchProfile(newSession.user.id);
+        const fetchedProfile = await fetchProfile(newSession.user.id);
+
+        try {
+          const cache: AuthCache = { session: newSession, profile: fetchedProfile };
+          await AsyncStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(cache));
+        } catch (e) {
+          console.warn('[AuthContext] cache write error:', e);
+        }
       } else {
         setProfile(null);
+        try {
+          await AsyncStorage.removeItem(AUTH_CACHE_KEY);
+        } catch (e) {
+          console.warn('[AuthContext] cache remove error:', e);
+        }
       }
     },
     [fetchProfile]
   );
 
-  // ── Inicialização: verifica sessão persistida no AsyncStorage ────────────
+  // ── Inicialização: Optimistic Boot / Cache-First ─────────────────────────
+  //
+  // Arquitectura de arranque em três fases:
+  //
+  //   Fase 1 — Leitura do cache (AsyncStorage, I/O local, <10 ms):
+  //     Se existir cache válido, hidrata o estado de autenticação de forma
+  //     síncrona (sem rede) e liberta o isLoading a praticamente 0 ms.
+  //     O utilizador entra no app instantaneamente.
+  //
+  //   Fase 2 — Libertação imediata do isLoading:
+  //     Independentemente de haver ou não cache, setIsLoading(false) é chamado
+  //     aqui — nunca fica suspenso à espera de uma resposta de rede.
+  //
+  //   Fase 3 — Validação em background (fire and forget):
+  //     getSession() é disparado sem await para forçar o SDK do Supabase a
+  //     verificar/renovar o token em background. O listener onAuthStateChange
+  //     (INITIAL_SESSION / TOKEN_REFRESHED / SIGNED_OUT) recebe o resultado
+  //     e chama applySession com a sessão real:
+  //       • Sessão válida  → estado já correto, cache atualizado com novo token.
+  //       • Sessão expirada → applySession(null) → cache limpo → login.
   useEffect(() => {
     let isMounted = true;
 
     const initialize = async (): Promise<void> => {
+      // Fase 1: boot pelo cache
       try {
-        // Failsafe: se getSession ficar suspenso num arranque a frio, o timeout
-        // de 3 s resolve com session null para libertar o ecrã de splash.
-        const timeoutPromise = new Promise<{ data: { session: null } }>(
-          (resolve) => setTimeout(() => resolve({ data: { session: null } }), 3000)
-        );
-
-        const { data } = await Promise.race([
-          supabase.auth.getSession(),
-          timeoutPromise,
-        ]);
-
-        if (isMounted) {
-          await applySession(data.session);
+        const raw = await AsyncStorage.getItem(AUTH_CACHE_KEY);
+        if (isMounted && raw) {
+          const cached: AuthCache = JSON.parse(raw);
+          setSession(cached.session);
+          setUser(cached.session?.user ?? null);
+          setProfile(cached.profile);
         }
       } catch (e) {
-        console.error('[AuthContext] initialize error:', e);
-        if (isMounted) {
-          await applySession(null);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        console.warn('[AuthContext] cache read error:', e);
       }
+
+      // Fase 2: liberta a UI imediatamente — com ou sem cache
+      if (isMounted) {
+        setIsLoading(false);
+      }
+
+      // Fase 3: validação em background — fire and forget
+      // O onAuthStateChange trata o resultado; não precisamos do valor aqui.
+      supabase.auth.getSession().catch((e) => {
+        console.warn('[AuthContext] background getSession error:', e);
+      });
     };
 
     initialize();
 
     // Listener de mudanças de estado de autenticação:
-    // disparado em login, logout, refresh de token, etc.
+    // disparado em INITIAL_SESSION, TOKEN_REFRESHED, SIGNED_IN, SIGNED_OUT, etc.
+    // É o responsável por sincronizar o estado real após a validação em background.
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
         if (isMounted) {
@@ -162,7 +213,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
           return false;
         }
 
-        // O onAuthStateChange cuida de chamar applySession automaticamente
+        // O onAuthStateChange cuida de chamar applySession (e gravar o cache)
         return true;
       } catch (e) {
         setError('Erro inesperado ao fazer login. Tente novamente.');
@@ -240,6 +291,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
         }
 
         // 4. Aplica a sessão imediatamente para navegar ao app sem delay.
+        //    Grava também o cache para que o próximo arranque seja instantâneo.
         //    O onAuthStateChange também vai disparar logo depois — a segunda
         //    chamada a applySession é idempotente (mesma sessão).
         await applySession(signUpData.session);
@@ -260,7 +312,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
     setIsLoading(true);
     try {
       await supabase.auth.signOut();
-      // O onAuthStateChange dispara applySession(null) automaticamente
+      // O onAuthStateChange dispara applySession(null), que limpa o cache
     } catch (e) {
       console.error('[AuthContext] signOut error:', e);
     } finally {
