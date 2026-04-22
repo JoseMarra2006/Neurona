@@ -3,7 +3,6 @@ import { useState, useCallback, useEffect } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
 import type {
   Transaction,
-  NewTransaction,
   FinancialSummary,
   TransactionType,
 } from '../types/database';
@@ -51,6 +50,33 @@ export interface UpdateTransactionData {
   date?:   string;
 }
 
+/**
+ * Dados de entrada para criar uma nova transação.
+ *
+ * Caminho simples  (isInstallment = false):
+ *   Insere uma única linha usando `title`, `amount` e `date`.
+ *
+ * Caminho parcelado (isInstallment = true):
+ *   Insere `installmentCount` linhas, uma por mês a partir de `date`.
+ *   Cada linha recebe:
+ *     - título  : "${title} (i+1/installmentCount)"
+ *     - valor   : installmentValue  (exato, sem arredondamento)
+ *     - data    : date + i meses    (virada de ano tratada pelo JS)
+ *   O campo `amount` é ignorado neste caminho.
+ */
+export interface AddTransactionInput {
+  title:            string;
+  amount:           number;
+  type:             TransactionType;
+  /** Data base escolhida pelo utilizador (ISO 8601). */
+  date:             string;
+  isInstallment:    boolean;
+  /** Número de parcelas — usado apenas quando isInstallment = true. */
+  installmentCount: number;
+  /** Valor exato de cada parcela — usado apenas quando isInstallment = true. */
+  installmentValue: number;
+}
+
 interface UseTransactionsReturn {
   /** Lista completa de transações, mais recente primeiro */
   transactions: Transaction[];
@@ -70,7 +96,7 @@ interface UseTransactionsReturn {
   isLoadingMonthly: boolean;
   /** Mensagem de erro da última operação */
   error: string | null;
-  addTransaction: (data: NewTransaction) => Promise<number>;
+  addTransaction: (data: AddTransactionInput) => Promise<number>;
   deleteTransaction: (id: number) => Promise<void>;
   updateTransaction: (id: number, data: UpdateTransactionData) => Promise<void>;
   getTransactionsByType: (type: TransactionType) => Promise<Transaction[]>;
@@ -97,7 +123,7 @@ const EMPTY_MONTHLY_SUMMARY: MonthlySummary = {
   surplus: 0,
 };
 
-// ─── Utilitário de data ───────────────────────────────────────────────────────
+// ─── Utilitários de data ──────────────────────────────────────────────────────
 
 /**
  * Retorna o prefixo "YYYY-MM" do mês corrente do dispositivo,
@@ -119,17 +145,30 @@ function getCurrentMonthPrefix(): string {
   return `${year}-${month}`;
 }
 
+/**
+ * Soma `months` meses a uma data ISO, respeitando a virada de ano.
+ *
+ * Exemplos:
+ *   addMonths("2026-10-15T...", 3) → "2027-01-15T..."
+ *   addMonths("2026-01-31T...", 1) → "2026-02-28T..." (JS clipa para o último dia do mês)
+ */
+function addMonths(isoDate: string, months: number): string {
+  const d = new Date(isoDate);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString();
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useTransactions(): UseTransactionsReturn {
   const db = useSQLiteContext();
 
-  const [transactions,       setTransactions]       = useState<Transaction[]>([]);
+  const [transactions,        setTransactions]        = useState<Transaction[]>([]);
   const [monthlyTransactions, setMonthlyTransactions] = useState<Transaction[]>([]);
-  const [monthlySummary,     setMonthlySummary]     = useState<MonthlySummary>(EMPTY_MONTHLY_SUMMARY);
-  const [isLoading,          setIsLoading]          = useState<boolean>(true);
-  const [isLoadingMonthly,   setIsLoadingMonthly]   = useState<boolean>(true);
-  const [error,              setError]              = useState<string | null>(null);
+  const [monthlySummary,      setMonthlySummary]      = useState<MonthlySummary>(EMPTY_MONTHLY_SUMMARY);
+  const [isLoading,           setIsLoading]           = useState<boolean>(true);
+  const [isLoadingMonthly,    setIsLoadingMonthly]    = useState<boolean>(true);
+  const [error,               setError]               = useState<string | null>(null);
 
   // ── Lista completa ──────────────────────────────────────────────────────
   const loadTransactions = useCallback(async (): Promise<void> => {
@@ -225,18 +264,48 @@ export function useTransactions(): UseTransactionsReturn {
   }, [loadTransactions, loadMonthlyData]);
 
   // ── addTransaction ──────────────────────────────────────────────────────
+  /**
+   * Persiste uma ou mais transações no SQLite.
+   *
+   * Caminho simples  (isInstallment = false):
+   *   Uma única linha com o título, valor e data fornecidos.
+   *
+   * Caminho parcelado (isInstallment = true):
+   *   Loop de 0 até installmentCount - 1. Cada iteração insere:
+   *     - título  : "${title} (i+1/installmentCount)"
+   *     - valor   : installmentValue
+   *     - data    : data base + i meses (addMonths garante virada de ano)
+   *   Todas as parcelas são inseridas antes do reload para que uma única
+   *   leitura do banco reflicta o estado final completo.
+   */
   const addTransaction = useCallback(
-    async (data: NewTransaction): Promise<number> => {
-      const date = data.date ?? new Date().toISOString();
-      const result = await db.runAsync(
-        `INSERT INTO transactions (title, amount, type, date) VALUES (?, ?, ?, ?)`,
-        data.title,
-        data.amount,
-        data.type,
-        date
-      );
-      await Promise.all([loadTransactions(), loadMonthlyData()]);
-      return result.lastInsertRowId;
+    async (data: AddTransactionInput): Promise<number> => {
+      if (data.isInstallment) {
+        let lastId = 0;
+        for (let i = 0; i < data.installmentCount; i++) {
+          const installmentDate = addMonths(data.date, i);
+          const result = await db.runAsync(
+            `INSERT INTO transactions (title, amount, type, date) VALUES (?, ?, ?, ?)`,
+            `${data.title} (${i + 1}/${data.installmentCount})`,
+            data.installmentValue,
+            data.type,
+            installmentDate
+          );
+          lastId = result.lastInsertRowId;
+        }
+        await Promise.all([loadTransactions(), loadMonthlyData()]);
+        return lastId;
+      } else {
+        const result = await db.runAsync(
+          `INSERT INTO transactions (title, amount, type, date) VALUES (?, ?, ?, ?)`,
+          data.title,
+          data.amount,
+          data.type,
+          data.date
+        );
+        await Promise.all([loadTransactions(), loadMonthlyData()]);
+        return result.lastInsertRowId;
+      }
     },
     [db, loadTransactions, loadMonthlyData]
   );

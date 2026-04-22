@@ -1,5 +1,6 @@
 // caminho: src/screens/reports/MonthsScreen.tsx
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -115,17 +116,19 @@ export default function MonthsScreen({ route, navigation }: ReportsMesesScreenPr
   const currentMonth = now.getMonth() + 1;
 
   // ── Carrega dados do gráfico ─────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoadingBar(true);
-    loadYearlyBarData(year).then((data) => {
-      if (!cancelled) {
-        setBarData(data);
-        setIsLoadingBar(false);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [year, loadYearlyBarData]);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setIsLoadingBar(true);
+      loadYearlyBarData(year).then((data) => {
+        if (!cancelled) {
+          setBarData(data);
+          setIsLoadingBar(false);
+        }
+      });
+      return () => { cancelled = true; };
+    }, [year, loadYearlyBarData])
+  );
 
   // ── Dados formatados para o BarChart ─────────────────────────────────────
   /*

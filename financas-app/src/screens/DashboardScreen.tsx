@@ -13,7 +13,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  Switch,
 } from 'react-native';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 
@@ -48,6 +50,26 @@ function formatDate(isoDate: string): string {
   const p = isoDate.split('T')[0]?.split('-');
   if (!p || p.length !== 3) return isoDate;
   return `${p[2]}/${p[1]}/${p[0]}`;
+}
+
+/** Formata um objeto Date para exibição no botão do DateTimePicker. */
+function formatDateDisplay(date: Date): string {
+  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+/**
+ * Retorna true se a data da transação for estritamente posterior ao dia de hoje
+ * (comparação feita à meia-noite para não marcar transações de hoje como futuras).
+ */
+function isFutureTransaction(isoDate: string): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const txDate = new Date(isoDate);
+  txDate.setHours(0, 0, 0, 0);
+  return txDate > today;
 }
 
 const MONTH_NAMES = [
@@ -126,12 +148,34 @@ function displaySurplus(value: number, isPrivacyActive: boolean): string {
 // ─── Tipo do formulário ───────────────────────────────────────────────────────
 
 interface TransactionForm {
-  title:  string;
-  amount: string;
-  type:   TransactionType;
+  title:            string;
+  amount:           string;
+  type:             TransactionType;
+  /** Data base escolhida pelo utilizador — Date object para o DateTimePicker. */
+  date:             Date;
+  /** Ativa o modo parcelado. */
+  isInstallment:    boolean;
+  /** Quantidade de parcelas (string para o TextInput). */
+  installmentCount: string;
+  /** Valor de cada parcela com máscara monetária. */
+  installmentValue: string;
 }
 
-const INITIAL_FORM: TransactionForm = { title: '', amount: '', type: 'gasto' };
+/**
+ * Cria um formulário em branco com a data atual como padrão.
+ * Usa factory em vez de constante para garantir que `date` seja sempre hoje.
+ */
+function makeInitialForm(): TransactionForm {
+  return {
+    title:            '',
+    amount:           '',
+    type:             'gasto',
+    date:             new Date(),
+    isInstallment:    false,
+    installmentCount: '',
+    installmentValue: '',
+  };
+}
 
 // ─── Configuração por tipo ────────────────────────────────────────────────────
 
@@ -187,10 +231,11 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     ? `Olá, ${displayName.split(' ')[0]}`
     : 'Olá';
 
-  const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
-  const [form,           setForm]           = useState<TransactionForm>(INITIAL_FORM);
-  const [isSaving,       setIsSaving]       = useState<boolean>(false);
-  const [formError,      setFormError]      = useState<string | null>(null);
+  const [isModalVisible,  setIsModalVisible]  = useState<boolean>(false);
+  const [form,            setForm]            = useState<TransactionForm>(makeInitialForm);
+  const [isSaving,        setIsSaving]        = useState<boolean>(false);
+  const [formError,       setFormError]       = useState<string | null>(null);
+  const [showDatePicker,  setShowDatePicker]  = useState<boolean>(false);
 
   // ── Paleta dinâmica ───────────────────────────────────────────────────────
   const P = {
@@ -222,21 +267,39 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
 
   // ── Modal ─────────────────────────────────────────────────────────────────
   const openModal = useCallback((): void => {
-    setForm(INITIAL_FORM); setFormError(null); setIsModalVisible(true);
+    setForm(makeInitialForm());
+    setFormError(null);
+    setShowDatePicker(false);
+    setIsModalVisible(true);
   }, []);
 
   const closeModal = useCallback((): void => {
     if (isSaving) return;
-    setIsModalVisible(false); setForm(INITIAL_FORM); setFormError(null);
+    setIsModalVisible(false);
+    setForm(makeInitialForm());
+    setFormError(null);
+    setShowDatePicker(false);
   }, [isSaving]);
 
   const validateForm = useCallback((): boolean => {
     setFormError(null);
-    if (!form.title.trim())                   { setFormError('O título é obrigatório.'); return false; }
-    if (form.title.trim().length < 2)         { setFormError('Título deve ter pelo menos 2 caracteres.'); return false; }
-    if (!form.amount.trim())                  { setFormError('O valor é obrigatório.'); return false; }
-    const v = parseMoneyMask(form.amount);
-    if (v <= 0)                               { setFormError('Informe um valor numérico maior que zero.'); return false; }
+    if (!form.title.trim())           { setFormError('O título é obrigatório.'); return false; }
+    if (form.title.trim().length < 2) { setFormError('Título deve ter pelo menos 2 caracteres.'); return false; }
+
+    if (form.isInstallment) {
+      const count = parseInt(form.installmentCount, 10);
+      if (!form.installmentCount || isNaN(count) || count < 2) {
+        setFormError('Informe a quantidade de parcelas (mínimo 2).'); return false;
+      }
+      if (count > 120) { setFormError('Máximo de 120 parcelas.'); return false; }
+      const val = parseMoneyMask(form.installmentValue);
+      if (val <= 0) { setFormError('Informe o valor de cada parcela.'); return false; }
+    } else {
+      if (!form.amount.trim()) { setFormError('O valor é obrigatório.'); return false; }
+      const v = parseMoneyMask(form.amount);
+      if (v <= 0)              { setFormError('Informe um valor numérico maior que zero.'); return false; }
+    }
+
     return true;
   }, [form]);
 
@@ -245,13 +308,17 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     setIsSaving(true);
     try {
       await addTransaction({
-        title:  form.title.trim(),
-        amount: parseMoneyMask(form.amount),
-        type:   form.type,
-        date:   new Date().toISOString(),
+        title:            form.title.trim(),
+        amount:           parseMoneyMask(form.amount),
+        type:             form.type,
+        date:             form.date.toISOString(),
+        isInstallment:    form.isInstallment,
+        installmentCount: parseInt(form.installmentCount, 10) || 0,
+        installmentValue: parseMoneyMask(form.installmentValue),
       });
       setIsModalVisible(false);
-      setForm(INITIAL_FORM);
+      setForm(makeInitialForm());
+      setShowDatePicker(false);
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Erro ao salvar. Tente novamente.');
     } finally {
@@ -267,6 +334,17 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     []
   );
 
+  const handleDateChange = useCallback(
+    (_event: DateTimePickerEvent, selectedDate?: Date): void => {
+      setShowDatePicker(false);
+      if (selectedDate) {
+        setForm((prev) => ({ ...prev, date: selectedDate }));
+        setFormError(null);
+      }
+    },
+    []
+  );
+
   const goToRelatorios = useCallback((): void => {
     navigation.navigate('Relatórios');
   }, [navigation]);
@@ -278,7 +356,8 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
   // a versão atualizada sempre que o estado de privacidade mudar.
   const renderItem = useCallback(
     ({ item, index }: { item: (typeof monthlyTransactions)[0]; index: number }) => {
-      const isLast = index === monthlyTransactions.length - 1;
+      const isLast   = index === monthlyTransactions.length - 1;
+      const isPlanned = isFutureTransaction(item.date);
 
       let dotColor    = SEM.income.text;
       let amountColor = SEM.income.text;
@@ -305,7 +384,20 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
         <View style={[styles.txRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: P.divider }]}>
           <View style={[styles.txDot, { backgroundColor: dotColor }]} />
           <View style={styles.txMid}>
-            <Text style={[styles.txTitle, { color: P.textPrimary }]} numberOfLines={1}>{item.title}</Text>
+            {/* Linha do título com indicador de transação planeada */}
+            <View style={styles.txTitleRow}>
+              <Text style={[styles.txTitle, { color: P.textPrimary }]} numberOfLines={1}>
+                {item.title}
+              </Text>
+              {isPlanned && (
+                <Feather
+                  name="clock"
+                  size={10}
+                  color="#f59e0b"
+                  style={{ marginLeft: 4, flexShrink: 0 }}
+                />
+              )}
+            </View>
             <Text style={[styles.txDate, { color: P.textMuted }]}>{formatDate(item.date)}</Text>
           </View>
           <View style={styles.txRight}>
@@ -327,6 +419,14 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
     (item: (typeof monthlyTransactions)[0]) => String(item.id),
     []
   );
+
+  // ── Live preview do valor total parcelado ─────────────────────────────────
+  const installmentTotal = (() => {
+    const count = parseInt(form.installmentCount, 10);
+    const val   = parseMoneyMask(form.installmentValue);
+    if (form.isInstallment && count > 0 && val > 0) return count * val;
+    return null;
+  })();
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -554,6 +654,31 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 </View>
               </View>
 
+              {/* ── Data ────────────────────────────────────────── */}
+              <View style={styles.formField}>
+                <Text style={[styles.formLabel, { color: P.textSecondary }]}>Data</Text>
+                <TouchableOpacity
+                  onPress={() => setShowDatePicker(true)}
+                  disabled={isSaving}
+                  activeOpacity={0.7}
+                  style={[styles.dateBtnField, { backgroundColor: P.inputBg, borderColor: P.inputBorder }]}
+                >
+                  <Text style={{ color: P.textPrimary, fontSize: 14 }}>
+                    {formatDateDisplay(form.date)}
+                  </Text>
+                  <Feather name="calendar" size={14} color={P.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              {showDatePicker && (
+                <DateTimePicker
+                  value={form.date}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={handleDateChange}
+                />
+              )}
+
               {/* ── Título ──────────────────────────────────────── */}
               <View style={styles.formField}>
                 <Text style={[styles.formLabel, { color: P.textSecondary }]}>Título</Text>
@@ -570,25 +695,89 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 />
               </View>
 
-              {/* ── Valor ────────────────────────────────────────
-               *
-               * Máscara bancária: dígitos da direita para esquerda.
-               * O "R$" faz parte do próprio valor formatado, portanto
-               * o prefixo estático foi removido.
-               * ──────────────────────────────────────────────── */}
+              {/* ── Compra parcelada? ────────────────────────────── */}
               <View style={styles.formField}>
-                <Text style={[styles.formLabel, { color: P.textSecondary }]}>Valor</Text>
-                <TextInput
-                  style={[styles.moneyInput, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.textPrimary }]}
-                  placeholder="R$ 0,00"
-                  placeholderTextColor={P.textMuted}
-                  value={form.amount}
-                  onChangeText={(t) => updateField('amount', applyMoneyMask(t))}
-                  keyboardType="number-pad"
-                  returnKeyType="done"
-                  editable={!isSaving}
-                />
+                <View style={styles.switchRow}>
+                  <Text style={[styles.formLabel, { color: P.textSecondary, marginBottom: 0 }]}>
+                    Compra parcelada?
+                  </Text>
+                  <Switch
+                    value={form.isInstallment}
+                    onValueChange={(v) => {
+                      setForm((prev) => ({ ...prev, isInstallment: v }));
+                      setFormError(null);
+                    }}
+                    disabled={isSaving}
+                    trackColor={{ false: P.inputBorder, true: accentColor }}
+                    thumbColor="#ffffff"
+                    ios_backgroundColor={P.inputBorder}
+                  />
+                </View>
               </View>
+
+              {/* ── Campos dinâmicos: Valor simples OU Parcelamento ── */}
+              {form.isInstallment ? (
+                <>
+                  {/* Quantidade de parcelas */}
+                  <View style={styles.formField}>
+                    <Text style={[styles.formLabel, { color: P.textSecondary }]}>Quantidade de parcelas</Text>
+                    <TextInput
+                      style={[styles.formInput, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.textPrimary }]}
+                      placeholder="Ex: 12"
+                      placeholderTextColor={P.textMuted}
+                      value={form.installmentCount}
+                      onChangeText={(t) => {
+                        setForm((prev) => ({ ...prev, installmentCount: t.replace(/\D/g, '') }));
+                        setFormError(null);
+                      }}
+                      keyboardType="number-pad"
+                      returnKeyType="next"
+                      editable={!isSaving}
+                      maxLength={3}
+                    />
+                  </View>
+
+                  {/* Valor de cada parcela */}
+                  <View style={styles.formField}>
+                    <Text style={[styles.formLabel, { color: P.textSecondary }]}>Valor de cada parcela</Text>
+                    <TextInput
+                      style={[styles.moneyInput, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.textPrimary }]}
+                      placeholder="R$ 0,00"
+                      placeholderTextColor={P.textMuted}
+                      value={form.installmentValue}
+                      onChangeText={(t) => {
+                        setForm((prev) => ({ ...prev, installmentValue: applyMoneyMask(t) }));
+                        setFormError(null);
+                      }}
+                      keyboardType="number-pad"
+                      returnKeyType="done"
+                      editable={!isSaving}
+                    />
+                  </View>
+
+                  {/* Live preview do total */}
+                  {installmentTotal !== null && (
+                    <Text style={[styles.installmentPreview, { color: P.textMuted }]}>
+                      Valor total planeado: {formatCurrency(installmentTotal)}
+                    </Text>
+                  )}
+                </>
+              ) : (
+                /* Valor simples */
+                <View style={styles.formField}>
+                  <Text style={[styles.formLabel, { color: P.textSecondary }]}>Valor</Text>
+                  <TextInput
+                    style={[styles.moneyInput, { backgroundColor: P.inputBg, borderColor: P.inputBorder, color: P.textPrimary }]}
+                    placeholder="R$ 0,00"
+                    placeholderTextColor={P.textMuted}
+                    value={form.amount}
+                    onChangeText={(t) => updateField('amount', applyMoneyMask(t))}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                    editable={!isSaving}
+                  />
+                </View>
+              )}
 
               {/* ── Erro ────────────────────────────────────────── */}
               {formError !== null && (
@@ -610,7 +799,9 @@ export default function DashboardScreen({ navigation }: DashboardScreenProps): R
                 ) : (
                   <>
                     <Feather name="check" size={15} color="#ffffff" style={{ marginRight: 8 }} />
-                    <Text style={styles.saveBtnText}>Salvar movimentação</Text>
+                    <Text style={styles.saveBtnText}>
+                      {form.isInstallment ? 'Salvar parcelamento' : 'Salvar movimentação'}
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -698,16 +889,17 @@ const styles = StyleSheet.create({
   cardLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   cardValue: { fontSize: 17, fontWeight: '800', letterSpacing: -0.4 },
 
-  listCard:    { borderRadius: 10, borderWidth: 1, overflow: 'hidden', marginBottom: 8 },
-  txRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 14 },
-  txDot:       { width: 8, height: 8, borderRadius: 4, marginRight: 12, flexShrink: 0 },
-  txMid:       { flex: 1, marginRight: 8 },
-  txTitle:     { fontSize: 13, fontWeight: '500', marginBottom: 2 },
-  txDate:      { fontSize: 11 },
-  txRight:     { alignItems: 'flex-end', gap: 5 },
-  txAmount:    { fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
-  txBadge:     { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-  txBadgeText: { fontSize: 10, fontWeight: '600' },
+  listCard:     { borderRadius: 10, borderWidth: 1, overflow: 'hidden', marginBottom: 8 },
+  txRow:        { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 14 },
+  txDot:        { width: 8, height: 8, borderRadius: 4, marginRight: 12, flexShrink: 0 },
+  txMid:        { flex: 1, marginRight: 8 },
+  txTitleRow:   { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
+  txTitle:      { fontSize: 13, fontWeight: '500', flexShrink: 1 },
+  txDate:       { fontSize: 11 },
+  txRight:      { alignItems: 'flex-end', gap: 5 },
+  txAmount:     { fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
+  txBadge:      { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  txBadgeText:  { fontSize: 10, fontWeight: '600' },
 
   emptyCard:  { borderRadius: 10, borderWidth: 1, alignItems: 'center', paddingVertical: 36, gap: 8 },
   emptyTitle: { fontSize: 14, fontWeight: '500', marginTop: 4 },
@@ -748,6 +940,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical:   11,
     fontSize:          14,
+  },
+
+  /** Botão que abre o DateTimePicker — mesmo visual do formInput mas com layout row. */
+  dateBtnField: {
+    borderWidth:       1,
+    borderRadius:      8,
+    paddingHorizontal: 12,
+    paddingVertical:   11,
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
+  },
+
+  /** Linha label + Switch para o campo "Compra parcelada?". */
+  switchRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+  },
+
+  /** Preview do valor total calculado silenciosamente no modo parcelado. */
+  installmentPreview: {
+    fontSize:    12,
+    fontStyle:   'italic',
+    marginBottom: 14,
+    marginTop:   -8,
   },
 
   errorBox:  { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },

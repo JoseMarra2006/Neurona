@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 import type { ReportsAnosScreenProps } from '../../types/navigation';
 import { useReports, type AvailableYear } from '../../database/useReports';
@@ -21,6 +22,10 @@ import { useAppTheme } from '../../contexts/ThemeContext';
 export default function YearsScreen({ navigation }: ReportsAnosScreenProps): React.JSX.Element {
   const { accentColor, isDark } = useAppTheme();
   const { availableYears, isLoadingYears, error, refreshYears } = useReports();
+
+  useFocusEffect(
+    useCallback(() => { refreshYears(); }, [refreshYears])
+  );
 
   const P = {
     screenBg:      isDark ? '#0d1117' : '#f6f8fa',

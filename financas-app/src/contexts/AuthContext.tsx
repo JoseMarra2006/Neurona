@@ -151,9 +151,12 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
     let isMounted = true;
 
     const initialize = async (): Promise<void> => {
-      // Fase 1: boot pelo cache
+      // Fase 1: boot pelo cache com timeout de segurança (evita hang no AsyncStorage)
       try {
-        const raw = await AsyncStorage.getItem(AUTH_CACHE_KEY);
+        const raw = await Promise.race([
+          AsyncStorage.getItem(AUTH_CACHE_KEY),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+        ]);
         if (isMounted && raw) {
           const cached: AuthCache = JSON.parse(raw);
           setSession(cached.session);
@@ -164,13 +167,11 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
         console.warn('[AuthContext] cache read error:', e);
       }
 
-      // Fase 2: liberta a UI imediatamente — com ou sem cache
-      if (isMounted) {
-        setIsLoading(false);
-      }
+      // Fase 2: liberta a UI incondicionalmente — sem checar isMounted para
+      // garantir que o splash sempre saia, mesmo após cleanup do efeito.
+      setIsLoading(false);
 
       // Fase 3: validação em background — fire and forget
-      // O onAuthStateChange trata o resultado; não precisamos do valor aqui.
       supabase.auth.getSession().catch((e) => {
         console.warn('[AuthContext] background getSession error:', e);
       });
@@ -178,14 +179,16 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
 
     initialize();
 
-    // Listener de mudanças de estado de autenticação:
-    // disparado em INITIAL_SESSION, TOKEN_REFRESHED, SIGNED_IN, SIGNED_OUT, etc.
-    // É o responsável por sincronizar o estado real após a validação em background.
+    // Listener de mudanças de estado de autenticação.
+    // Libera o isLoading ANTES de chamar applySession para que chamadas de
+    // rede dentro de applySession (fetchProfile) não bloqueiem a splash screen.
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
+      (_event, newSession) => {
         if (isMounted) {
-          await applySession(newSession);
           setIsLoading(false);
+          applySession(newSession).catch((e) =>
+            console.warn('[AuthContext] applySession error:', e)
+          );
         }
       }
     );
@@ -194,7 +197,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
       isMounted = false;
       listener.subscription.unsubscribe();
     };
-  }, [applySession]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── signIn ───────────────────────────────────────────────────────────────
   const signIn = useCallback(

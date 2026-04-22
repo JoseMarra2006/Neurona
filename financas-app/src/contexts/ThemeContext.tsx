@@ -27,11 +27,21 @@ export interface AccentPreset {
 }
 
 export const ACCENT_PRESETS: AccentPreset[] = [
-  { id: 'blue',   label: 'Azul',    color: '#2f78f0' },
-  { id: 'green',  label: 'Verde',   color: '#059669' },
-  { id: 'orange', label: 'Laranja', color: '#ea580c' },
-  { id: 'purple', label: 'Roxo',    color: '#7c3aed' },
-  { id: 'teal',   label: 'Teal',    color: '#0d9488' },
+  { id: 'blue',     label: 'Azul',     color: '#2f78f0' },
+  { id: 'navy',     label: 'Marinho',  color: '#1e3a8a' },
+  { id: 'violet',   label: 'Violeta',  color: '#820ad1' },
+  { id: 'emerald',  label: 'Esmeralda',color: '#10b981' },
+  { id: 'slate',    label: 'Ardósia',  color: '#64748b' },
+  { id: 'amber',    label: 'Âmbar',    color: '#f59e0b' },
+  { id: 'rose',     label: 'Carmim',   color: '#e11d48' },
+  { id: 'cyan',     label: 'Ciano',    color: '#06b6d4' },
+  { id: 'pink',     label: 'Pink',     color: '#db2777' },
+  { id: 'yellow',   label: 'Amarelo',  color: '#eab308' },
+  { id: 'lavender', label: 'Lavanda',  color: '#a78bfa' },
+  { id: 'mint',     label: 'Hortelã',  color: '#34d399' },
+  { id: 'peach',    label: 'Pêssego',  color: '#fb923c' },
+  { id: 'sky',      label: 'Céu',      color: '#38bdf8' },
+  { id: 'bronze',   label: 'Bronze',   color: '#b45309' },
 ];
 
 // ─── Context Type ─────────────────────────────────────────────────────────────

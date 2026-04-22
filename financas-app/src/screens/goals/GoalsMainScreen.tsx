@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 import type { GoalsMainScreenProps } from '../../types/navigation';
 import { useGoals, type GoalWithProgress } from '../../database/useGoals';
@@ -82,6 +83,10 @@ export default function GoalsMainScreen({ navigation }: GoalsMainScreenProps): R
     goalsWithProgress, isLoading, error,
     addGoal, deleteGoal, refreshGoals,
   } = useGoals();
+
+  useFocusEffect(
+    useCallback(() => { refreshGoals(); }, [refreshGoals])
+  );
 
   const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
   const [form, setForm]       = useState<GoalForm>(INITIAL_FORM);

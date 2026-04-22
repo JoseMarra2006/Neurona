@@ -546,7 +546,7 @@ const styles = StyleSheet.create({
   themeSegmentBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 9, borderWidth: 1 },
   themeSegmentText:{ fontSize: 12 },
 
-  accentGrid:  { flexDirection: 'row', gap: 12, paddingTop: 4, flexWrap: 'nowrap', justifyContent: 'flex-start' },
+  accentGrid:  { flexDirection: 'row', gap: 12, paddingTop: 4, flexWrap: 'wrap', justifyContent: 'flex-start' },
   swatchItem:  { alignItems: 'center', gap: 6 },
   swatchOuter: { width: 46, height: 46, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center', padding: 3 },
   swatchInner: { width: 34, height: 34, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
